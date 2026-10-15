@@ -148,3 +148,148 @@ func TestEncryptReader_SourceError(t *testing.T) {
 		}
 	}
 }
+
+// DecryptReader
+//
+// La entrada son las salidas de referencia de testdata y el resultado
+// esperado es el texto plano conocido, testData(tamaño).
+
+func TestDecryptReader_ValidConfig(t *testing.T) {
+	for _, tt := range validConfigs {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := sio.DecryptReader(bytes.NewReader(nil), tt.config)
+			assert.NoError(t, err)
+		})
+	}
+}
+
+func TestDecryptReader_InvalidConfig(t *testing.T) {
+	for _, tt := range invalidConfigs {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := sio.DecryptReader(bytes.NewReader(nil), tt.config)
+			assert.Error(t, err)
+		})
+	}
+}
+
+func TestDecryptReader_Golden(t *testing.T) {
+	for _, v := range versions {
+		for _, s := range plaintextSizes {
+			t.Run(v.name+"/"+s.name, func(t *testing.T) {
+				got, err := decrypt(bytes.NewReader(golden(v.name, s.size)), v.config, 0)
+				assert.Equal(t, outcome[[]byte]{testData(s.size), nil}, outcome[[]byte]{got, err})
+			})
+		}
+	}
+}
+
+func TestDecryptReader_AnyReadSize(t *testing.T) {
+	// La salida no depende del tamaño del buffer de lectura.
+	// Fronteras: 1 byte y un payload completo ±1.
+	bufSizes := []int{1, maxPayloadSize - 1, maxPayloadSize, maxPayloadSize + 1}
+	for _, v := range versions {
+		for _, size := range bufSizes {
+			t.Run(fmt.Sprintf("%s/buffer %d", v.name, size), func(t *testing.T) {
+				got, err := decrypt(bytes.NewReader(golden(v.name, maxPayloadSize+1)), v.config, size)
+				assert.Equal(t, outcome[[]byte]{testData(maxPayloadSize + 1), nil}, outcome[[]byte]{got, err})
+			})
+		}
+	}
+}
+
+func TestDecryptReader_Tampered(t *testing.T) {
+	// DARE.md, sección 2: un atacante no puede modificar ni eliminar paquetes
+	// sin que se detecte. Doc de DecryptReader: si el descifrado falla, el
+	// error es de tipo sio.Error. El flujo tiene 2 paquetes: 64 KiB y 1 byte.
+	tamperings := []struct {
+		name   string
+		tamper func(s []byte) []byte
+	}{
+		{"version byte changed", func(s []byte) []byte { s[0] ^= 0xff; return s }},
+		{"first payload byte changed", func(s []byte) []byte { s[headerSize] ^= 1; return s }},
+		{"last byte changed", func(s []byte) []byte { s[len(s)-1] ^= 1; return s }},
+		{"last byte removed", func(s []byte) []byte { return s[:len(s)-1] }},
+		{"first package removed", func(s []byte) []byte { return s[maxPackageSize:] }},
+	}
+	for _, v := range versions {
+		for _, tt := range tamperings {
+			t.Run(v.name+"/"+tt.name, func(t *testing.T) {
+				stream := tt.tamper(golden(v.name, maxPayloadSize+1))
+				_, err := decrypt(bytes.NewReader(stream), v.config, 0)
+				assert.ErrorAs(t, err, new(sio.Error))
+			})
+		}
+	}
+}
+
+func TestDecryptReader_WrongKey(t *testing.T) {
+	for _, v := range versions {
+		t.Run(v.name, func(t *testing.T) {
+			config := v.config
+			config.Key = testData(32)
+			_, err := decrypt(bytes.NewReader(golden(v.name, 1)), config, 0)
+			assert.ErrorAs(t, err, new(sio.Error))
+		})
+	}
+}
+
+func TestDecryptReader_RandomTamperedByte(t *testing.T) {
+	// Datos aleatorios: cambiar cualquier byte del flujo hace fallar el descifrado.
+	rapid.Check(t, func(t *rapid.T) {
+		v := rapid.SampledFrom(versions).Draw(t, "version")
+		stream := golden(v.name, maxPayloadSize+1)
+		pos := rapid.IntRange(0, len(stream)-1).Draw(t, "position")
+		stream[pos] ^= rapid.ByteRange(1, 255).Draw(t, "xor")
+		_, err := decrypt(bytes.NewReader(stream), v.config, 0)
+		assert.ErrorAs(t, err, new(sio.Error))
+	})
+}
+
+func TestDecryptReader_VersionOutsideRange(t *testing.T) {
+	// Doc de Config: MinVersion y MaxVersion son la versión mínima y máxima
+	// admitidas. Un flujo con otra versión debe dar error.
+	tests := []struct {
+		name     string
+		data     string // versión de los datos
+		min, max byte
+	}{
+		{"1.0 data, min just above 1.0", "1.0", sio.Version10 + 1, sio.Version20},
+		{"1.0 data, min just below 2.0", "1.0", sio.Version20 - 1, sio.Version20},
+		{"1.0 data, min 2.0", "1.0", sio.Version20, sio.Version20},
+		{"2.0 data, max 1.0", "2.0", sio.Version10, sio.Version10},
+		{"2.0 data, max just below 2.0", "2.0", sio.Version10, sio.Version20 - 1},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			config := sio.Config{Key: make([]byte, 32), MinVersion: tt.min, MaxVersion: tt.max}
+			_, err := decrypt(bytes.NewReader(golden(tt.data, 1)), config, 0)
+			assert.Error(t, err)
+		})
+	}
+}
+
+func TestDecryptReader_SourceError(t *testing.T) {
+	// Mock de src que falla después de entregar parte del flujo cifrado:
+	// al principio, dentro de la cabecera, al completar un paquete y dentro
+	// del segundo paquete.
+	errSource := errors.New("source failed")
+	prefixes := []struct {
+		name string
+		size int
+	}{
+		{"at start", 0},
+		{"inside the first header", headerSize / 2},
+		{"after one full package", maxPackageSize},
+		{"inside the second package", maxPackageSize + headerSize + 1},
+	}
+	for _, v := range versions {
+		for _, p := range prefixes {
+			t.Run(v.name+"/"+p.name, func(t *testing.T) {
+				stream := golden(v.name, maxPayloadSize+1)[:p.size]
+				src := io.MultiReader(bytes.NewReader(stream), iotest.ErrReader(errSource))
+				_, err := decrypt(src, v.config, 0)
+				assert.ErrorIs(t, err, errSource)
+			})
+		}
+	}
+}

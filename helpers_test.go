@@ -23,6 +23,16 @@ func encrypt(src io.Reader, config sio.Config, bufSize int) ([]byte, error) {
 	return readAll(r, bufSize)
 }
 
+// decrypt descifra src con DecryptReader y lee toda la salida con un buffer de
+// bufSize bytes (0: io.ReadAll).
+func decrypt(src io.Reader, config sio.Config, bufSize int) ([]byte, error) {
+	r, err := sio.DecryptReader(src, config)
+	if err != nil {
+		return nil, err
+	}
+	return readAll(r, bufSize)
+}
+
 // readAll lee r hasta io.EOF usando siempre un buffer de bufSize bytes.
 func readAll(r io.Reader, bufSize int) ([]byte, error) {
 	if bufSize == 0 {

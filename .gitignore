@@ -4,6 +4,6 @@ devenv.local.nix
 devenv.local.yaml
 .direnv
 
-
 # test artifacts
+testdata/rapid/
 __pycache__/

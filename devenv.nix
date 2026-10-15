@@ -31,6 +31,7 @@ in
     pkgs.revive
     pkgs.gocyclo
     pkgs.gofumpt
+    (pkgs.python3.withPackages (p: [ p.cryptography ])) # testdata/gen.py
   ];
 
   env.GOBIN = "${config.devenv.state}/gobin";
@@ -42,6 +43,7 @@ in
   '';
 
   scripts = {
+    vvs-golden.exec = ''python3 testdata/gen.py'';
     vvs-test.exec = ''go test -race "$@" ./...'';
     vvs-lint.exec = ''
       golangci-lint run ./... | tee reports/lint.txt

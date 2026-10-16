@@ -77,3 +77,46 @@ func (f failingReaderAt) ReadAt(p []byte, off int64) (int, error) {
 	}
 	return copy(p, f.data[off:]), nil
 }
+
+// encryptW cifra src con EncryptWriter, escribiéndolo en trozos de chunk bytes
+// (0: todo de una vez), y cierra el writer.
+func encryptW(src []byte, config sio.Config, chunk int) ([]byte, error) {
+	out := bytes.NewBuffer([]byte{}) // igual que io.ReadAll: vacío, no nil
+	w, err := sio.EncryptWriter(out, config)
+	if err != nil {
+		return nil, err
+	}
+	err = writeAll(w, src, chunk)
+	return out.Bytes(), err
+}
+
+// writeAll escribe src en w en trozos de chunk bytes (0: todo de una vez) y
+// cierra w. Devuelve el primer error.
+func writeAll(w io.WriteCloser, src []byte, chunk int) error {
+	if chunk == 0 {
+		chunk = max(len(src), 1)
+	}
+	for len(src) > 0 {
+		n := min(chunk, len(src))
+		if _, err := w.Write(src[:n]); err != nil {
+			return err
+		}
+		src = src[n:]
+	}
+	return w.Close()
+}
+
+// failingWriter es un mock de io.Writer: acepta failAt bytes y falla con err
+// en cualquier escritura que pase de ahí.
+type failingWriter struct {
+	written, failAt int
+	err             error
+}
+
+func (w *failingWriter) Write(p []byte) (int, error) {
+	if w.written+len(p) > w.failAt {
+		return 0, w.err
+	}
+	w.written += len(p)
+	return len(p), nil
+}

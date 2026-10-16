@@ -46,16 +46,8 @@ func TestEncryptReader_RandomKeySizes(t *testing.T) {
 func TestEncryptReader_FailingRand(t *testing.T) {
 	// Sin Nonce, el nonce se lee de Config.Rand. Mocks de Rand que fallan o no
 	// dan bytes suficientes deben producir un error.
-	rands := []struct {
-		name string
-		rand func(size int) io.Reader
-	}{
-		{"read error", func(int) io.Reader { return iotest.ErrReader(errors.New("rand failed")) }},
-		{"empty", func(int) io.Reader { return bytes.NewReader(nil) }},
-		{"one byte short", func(size int) io.Reader { return bytes.NewReader(make([]byte, size-1)) }},
-	}
 	for _, v := range versions {
-		for _, r := range rands {
+		for _, r := range failingRands {
 			t.Run(v.name+"/"+r.name, func(t *testing.T) {
 				config := v.config
 				config.Nonce, config.Rand = nil, r.rand(v.randSize)
@@ -89,6 +81,27 @@ func TestEncryptReader_HeaderBytes(t *testing.T) {
 				assert.Equal(t, outcome[[]byte]{[]byte{v.header, c.header}, nil}, outcome[[]byte]{out[:min(2, len(out))], err})
 			})
 		}
+	}
+}
+
+func TestEncryptReader_VersionInRange(t *testing.T) {
+	for _, tt := range versionRanges {
+		t.Run(tt.name, func(t *testing.T) {
+			config := sio.Config{Key: make([]byte, 32), MinVersion: tt.min, MaxVersion: tt.max}
+			out, err := encrypt(bytes.NewReader(testData(1)), config, 0)
+			assert.Equal(t, outcome[[]byte]{[]byte{tt.header}, nil}, outcome[[]byte]{out[:min(1, len(out))], err})
+		})
+	}
+}
+
+func TestEncryptReader_NoVersionInRange(t *testing.T) {
+	// Ni la 1.0 ni la 2.0 están en el rango, así que cifrar debe dar error.
+	for _, tt := range rangesWithoutVersion {
+		t.Run(tt.name, func(t *testing.T) {
+			config := sio.Config{Key: make([]byte, 32), MinVersion: tt.min, MaxVersion: tt.max}
+			_, err := encrypt(bytes.NewReader(testData(1)), config, 0)
+			assert.Error(t, err)
+		})
 	}
 }
 

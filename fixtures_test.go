@@ -4,9 +4,13 @@ package sio_test
 // valores frontera, configuraciones y salidas cifradas de referencia.
 
 import (
+	"bytes"
+	"errors"
 	"fmt"
+	"io"
 	"math"
 	"os"
+	"testing/iotest"
 
 	"github.com/minio/sio"
 )
@@ -155,4 +159,40 @@ var versionsOutsideRange = []struct {
 	{"1.0 data, min 2.0", "1.0", sio.Version20, sio.Version20},
 	{"2.0 data, max 1.0", "2.0", sio.Version10, sio.Version10},
 	{"2.0 data, max just below 2.0", "2.0", sio.Version10, sio.Version20 - 1},
+}
+
+// Mocks de Config.Rand que fallan o no dan los bytes que pide el nonce
+// (versions.randSize).
+var failingRands = []struct {
+	name string
+	rand func(size int) io.Reader
+}{
+	{"read error", func(int) io.Reader { return iotest.ErrReader(errors.New("rand failed")) }},
+	{"empty", func(int) io.Reader { return bytes.NewReader(nil) }},
+	{"one byte short", func(size int) io.Reader { return bytes.NewReader(make([]byte, size-1)) }},
+}
+
+// Rangos de versión para cifrar. Doc de Config: MinVersion y MaxVersion son la
+// versión mínima y máxima admitidas, así que la salida debe usar una versión
+// dentro del rango.
+var versionRanges = []struct {
+	name     string
+	min, max byte
+	header   byte // versión esperada en el byte 0
+}{
+	{"only 1.0", sio.Version10, sio.Version10, 0x10},
+	{"1.0 to just below 2.0", sio.Version10, sio.Version20 - 1, 0x10},
+	{"just above 1.0 to 2.0", sio.Version10 + 1, sio.Version20, 0x20},
+	{"only 2.0", sio.Version20, sio.Version20, 0x20},
+}
+
+// Rangos de versión válidos para Config que no incluyen ni la 1.0 ni la 2.0:
+// no se puede cifrar con una versión dentro del rango.
+var rangesWithoutVersion = []struct {
+	name     string
+	min, max byte
+}{
+	{"just above 1.0 to just below 2.0", sio.Version10 + 1, sio.Version20 - 1},
+	{"only just above 1.0", sio.Version10 + 1, sio.Version10 + 1},
+	{"only just below 2.0", sio.Version20 - 1, sio.Version20 - 1},
 }

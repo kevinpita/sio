@@ -152,3 +152,119 @@ func TestEncryptWriter_DestinationError(t *testing.T) {
 		}
 	}
 }
+
+// DecryptWriter
+//
+// La entrada son las salidas de referencia de testdata y el resultado
+// esperado es el texto plano conocido, testData(tamaño).
+
+func TestDecryptWriter_ValidConfig(t *testing.T) {
+	for _, tt := range validConfigs {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := sio.DecryptWriter(&bytes.Buffer{}, tt.config)
+			assert.NoError(t, err)
+		})
+	}
+}
+
+func TestDecryptWriter_InvalidConfig(t *testing.T) {
+	for _, tt := range invalidConfigs {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := sio.DecryptWriter(&bytes.Buffer{}, tt.config)
+			assert.Error(t, err)
+		})
+	}
+}
+
+func TestDecryptWriter_Golden(t *testing.T) {
+	for _, v := range versions {
+		for _, s := range plaintextSizes {
+			t.Run(v.name+"/"+s.name, func(t *testing.T) {
+				got, err := decryptW(golden(v.name, s.size), v.config, 0)
+				assert.Equal(t, outcome[[]byte]{testData(s.size), nil}, outcome[[]byte]{got, err})
+			})
+		}
+	}
+}
+
+func TestDecryptWriter_AnyWriteSize(t *testing.T) {
+	// La salida no depende del tamaño de cada Write.
+	// Fronteras: 1 byte, la cabecera y un paquete completo ±1.
+	writeSizes := []int{1, headerSize, maxPackageSize - 1, maxPackageSize, maxPackageSize + 1}
+	for _, v := range versions {
+		for _, size := range writeSizes {
+			t.Run(fmt.Sprintf("%s/write %d", v.name, size), func(t *testing.T) {
+				got, err := decryptW(golden(v.name, maxPayloadSize+1), v.config, size)
+				assert.Equal(t, outcome[[]byte]{testData(maxPayloadSize + 1), nil}, outcome[[]byte]{got, err})
+			})
+		}
+	}
+}
+
+func TestDecryptWriter_RandomWriteSizes(t *testing.T) {
+	// Datos aleatorios: escribir el flujo cifrado en trozos de tamaño
+	// aleatorio da el mismo texto plano.
+	rapid.Check(t, func(t *rapid.T) {
+		v := rapid.SampledFrom(versions).Draw(t, "version")
+		out := &bytes.Buffer{}
+		w, err := sio.DecryptWriter(out, v.config)
+		for src := golden(v.name, maxPayloadSize+1); err == nil && len(src) > 0; {
+			n := rapid.IntRange(1, len(src)).Draw(t, "write size")
+			_, err = w.Write(src[:n])
+			src = src[n:]
+		}
+		if err == nil {
+			err = w.Close()
+		}
+		assert.Equal(t, outcome[[]byte]{testData(maxPayloadSize + 1), nil}, outcome[[]byte]{out.Bytes(), err})
+	})
+}
+
+func TestDecryptWriter_Tampered(t *testing.T) {
+	// Doc de DecryptWriter: si el descifrado falla, el error es de tipo sio.Error.
+	for _, v := range versions {
+		for _, tt := range tamperings {
+			t.Run(v.name+"/"+tt.name, func(t *testing.T) {
+				stream := tt.tamper(golden(v.name, maxPayloadSize+1))
+				_, err := decryptW(stream, v.config, 0)
+				assert.ErrorAs(t, err, new(sio.Error))
+			})
+		}
+	}
+}
+
+func TestDecryptWriter_VersionOutsideRange(t *testing.T) {
+	// Un flujo con una versión fuera del rango debe dar error.
+	for _, tt := range versionsOutsideRange {
+		t.Run(tt.name, func(t *testing.T) {
+			config := sio.Config{Key: make([]byte, 32), MinVersion: tt.min, MaxVersion: tt.max}
+			_, err := decryptW(golden(tt.data, 1), config, 0)
+			assert.Error(t, err)
+		})
+	}
+}
+
+func TestDecryptWriter_DestinationError(t *testing.T) {
+	// Mock de dst que falla a partir de un byte del texto plano: el error
+	// debe llegar al que escribe, en Write o en Close.
+	errDestination := errors.New("destination failed")
+	failures := []struct {
+		name   string
+		failAt int
+	}{
+		{"at start", 0},
+		{"inside the first package", maxPayloadSize / 2},
+		{"inside the second package", maxPayloadSize},
+	}
+	for _, v := range versions {
+		for _, f := range failures {
+			t.Run(v.name+"/"+f.name, func(t *testing.T) {
+				w, err := sio.DecryptWriter(&failingWriter{failAt: f.failAt, err: errDestination}, v.config)
+				if err == nil {
+					err = writeAll(w, golden(v.name, maxPayloadSize+1), 0)
+				}
+				assert.ErrorIs(t, err, errDestination)
+			})
+		}
+	}
+}

@@ -90,6 +90,18 @@ func encryptW(src []byte, config sio.Config, chunk int) ([]byte, error) {
 	return out.Bytes(), err
 }
 
+// decryptW descifra src con DecryptWriter, escribiéndolo en trozos de chunk
+// bytes (0: todo de una vez), y cierra el writer.
+func decryptW(src []byte, config sio.Config, chunk int) ([]byte, error) {
+	out := bytes.NewBuffer([]byte{}) // igual que io.ReadAll: vacío, no nil
+	w, err := sio.DecryptWriter(out, config)
+	if err != nil {
+		return nil, err
+	}
+	err = writeAll(w, src, chunk)
+	return out.Bytes(), err
+}
+
 // writeAll escribe src en w en trozos de chunk bytes (0: todo de una vez) y
 // cierra w. Devuelve el primer error.
 func writeAll(w io.WriteCloser, src []byte, chunk int) error {

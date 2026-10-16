@@ -233,6 +233,20 @@ func TestDecryptWriter_Tampered(t *testing.T) {
 	}
 }
 
+func TestDecryptWriter_OnlyAuthenticatedOutput(t *testing.T) {
+	// DARE.md, sección 3: el texto plano nunca se entrega antes de comprobar
+	// el tag. Si un paquete está alterado, dst solo recibe los paquetes
+	// anteriores, que sí se han comprobado.
+	for _, v := range versions {
+		for _, tt := range authenticatedPrefixes {
+			t.Run(v.name+"/"+tt.name, func(t *testing.T) {
+				got, _ := decryptW(tt.tamper(golden(v.name, maxPayloadSize+1)), v.config, 0)
+				assert.Equal(t, tt.want, got)
+			})
+		}
+	}
+}
+
 func TestDecryptWriter_VersionOutsideRange(t *testing.T) {
 	// Un flujo con una versión fuera del rango debe dar error.
 	for _, tt := range versionsOutsideRange {

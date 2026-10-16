@@ -161,6 +161,18 @@ var versionsOutsideRange = []struct {
 	{"2.0 data, max just below 2.0", "2.0", sio.Version10, sio.Version20 - 1},
 }
 
+// Alteraciones de un flujo de 2 paquetes (64 KiB y 1 byte) y el texto plano que
+// se puede entregar: solo los paquetes anteriores al alterado.
+var authenticatedPrefixes = []struct {
+	name   string
+	tamper func(s []byte) []byte
+	want   []byte
+}{
+	{"first package changed", func(s []byte) []byte { s[headerSize] ^= 1; return s }, []byte{}},
+	{"second package changed", func(s []byte) []byte { s[len(s)-1] ^= 1; return s }, testData(maxPayloadSize)},
+	{"second package cut", func(s []byte) []byte { return s[:len(s)-1] }, testData(maxPayloadSize)},
+}
+
 // Mocks de Config.Rand que fallan o no dan los bytes que pide el nonce
 // (versions.randSize).
 var failingRands = []struct {

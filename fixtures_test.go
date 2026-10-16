@@ -129,3 +129,30 @@ var invalidConfigs = []struct {
 	// MinVersion y MaxVersion: el mínimo no puede ser mayor que el máximo.
 	{"min version above max version", sio.Config{Key: make([]byte, 32), MinVersion: sio.Version20, MaxVersion: sio.Version10}},
 }
+
+// Alteraciones de un flujo de 2 paquetes (64 KiB y 1 byte). DARE.md, sección 2:
+// un atacante no puede modificar ni eliminar paquetes sin que se detecte.
+var tamperings = []struct {
+	name   string
+	tamper func(s []byte) []byte
+}{
+	{"version byte changed", func(s []byte) []byte { s[0] ^= 0xff; return s }},
+	{"first payload byte changed", func(s []byte) []byte { s[headerSize] ^= 1; return s }},
+	{"last byte changed", func(s []byte) []byte { s[len(s)-1] ^= 1; return s }},
+	{"last byte removed", func(s []byte) []byte { return s[:len(s)-1] }},
+	{"first package removed", func(s []byte) []byte { return s[maxPackageSize:] }},
+}
+
+// Rangos de versión que no incluyen la versión de los datos. Doc de Config:
+// MinVersion y MaxVersion son la versión mínima y máxima admitidas.
+var versionsOutsideRange = []struct {
+	name     string
+	data     string // versión de los datos
+	min, max byte
+}{
+	{"1.0 data, min just above 1.0", "1.0", sio.Version10 + 1, sio.Version20},
+	{"1.0 data, min just below 2.0", "1.0", sio.Version20 - 1, sio.Version20},
+	{"1.0 data, min 2.0", "1.0", sio.Version20, sio.Version20},
+	{"2.0 data, max 1.0", "2.0", sio.Version10, sio.Version10},
+	{"2.0 data, max just below 2.0", "2.0", sio.Version10, sio.Version20 - 1},
+}

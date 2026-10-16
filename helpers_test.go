@@ -1,6 +1,7 @@
 package sio_test
 
 import (
+	"bytes"
 	"errors"
 	"io"
 
@@ -50,4 +51,29 @@ func readAll(r io.Reader, bufSize int) ([]byte, error) {
 			return out, err
 		}
 	}
+}
+
+// decryptAt descifra src con DecryptReaderAt y lee n bytes de texto plano a
+// partir de offset. io.SectionReader convierte el io.ReaderAt en un io.Reader.
+func decryptAt(src []byte, config sio.Config, offset, n int) ([]byte, error) {
+	r, err := sio.DecryptReaderAt(bytes.NewReader(src), config)
+	if err != nil {
+		return nil, err
+	}
+	return io.ReadAll(io.NewSectionReader(r, int64(offset), int64(n)))
+}
+
+// failingReaderAt es un mock de io.ReaderAt: entrega data hasta el byte failAt
+// y falla con err en cualquier lectura que pase de ahí.
+type failingReaderAt struct {
+	data   []byte
+	failAt int
+	err    error
+}
+
+func (f failingReaderAt) ReadAt(p []byte, off int64) (int, error) {
+	if int(off)+len(p) > f.failAt {
+		return 0, f.err
+	}
+	return copy(p, f.data[off:]), nil
 }

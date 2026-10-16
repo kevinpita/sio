@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"testing"
 	"testing/iotest"
 
@@ -198,19 +199,7 @@ func TestDecryptReader_AnyReadSize(t *testing.T) {
 }
 
 func TestDecryptReader_Tampered(t *testing.T) {
-	// DARE.md, sección 2: un atacante no puede modificar ni eliminar paquetes
-	// sin que se detecte. Doc de DecryptReader: si el descifrado falla, el
-	// error es de tipo sio.Error. El flujo tiene 2 paquetes: 64 KiB y 1 byte.
-	tamperings := []struct {
-		name   string
-		tamper func(s []byte) []byte
-	}{
-		{"version byte changed", func(s []byte) []byte { s[0] ^= 0xff; return s }},
-		{"first payload byte changed", func(s []byte) []byte { s[headerSize] ^= 1; return s }},
-		{"last byte changed", func(s []byte) []byte { s[len(s)-1] ^= 1; return s }},
-		{"last byte removed", func(s []byte) []byte { return s[:len(s)-1] }},
-		{"first package removed", func(s []byte) []byte { return s[maxPackageSize:] }},
-	}
+	// Doc de DecryptReader: si el descifrado falla, el error es de tipo sio.Error.
 	for _, v := range versions {
 		for _, tt := range tamperings {
 			t.Run(v.name+"/"+tt.name, func(t *testing.T) {
@@ -246,20 +235,8 @@ func TestDecryptReader_RandomTamperedByte(t *testing.T) {
 }
 
 func TestDecryptReader_VersionOutsideRange(t *testing.T) {
-	// Doc de Config: MinVersion y MaxVersion son la versión mínima y máxima
-	// admitidas. Un flujo con otra versión debe dar error.
-	tests := []struct {
-		name     string
-		data     string // versión de los datos
-		min, max byte
-	}{
-		{"1.0 data, min just above 1.0", "1.0", sio.Version10 + 1, sio.Version20},
-		{"1.0 data, min just below 2.0", "1.0", sio.Version20 - 1, sio.Version20},
-		{"1.0 data, min 2.0", "1.0", sio.Version20, sio.Version20},
-		{"2.0 data, max 1.0", "2.0", sio.Version10, sio.Version10},
-		{"2.0 data, max just below 2.0", "2.0", sio.Version10, sio.Version20 - 1},
-	}
-	for _, tt := range tests {
+	// Un flujo con una versión fuera del rango debe dar error.
+	for _, tt := range versionsOutsideRange {
 		t.Run(tt.name, func(t *testing.T) {
 			config := sio.Config{Key: make([]byte, 32), MinVersion: tt.min, MaxVersion: tt.max}
 			_, err := decrypt(bytes.NewReader(golden(tt.data, 1)), config, 0)
@@ -288,6 +265,167 @@ func TestDecryptReader_SourceError(t *testing.T) {
 				stream := golden(v.name, maxPayloadSize+1)[:p.size]
 				src := io.MultiReader(bytes.NewReader(stream), iotest.ErrReader(errSource))
 				_, err := decrypt(src, v.config, 0)
+				assert.ErrorIs(t, err, errSource)
+			})
+		}
+	}
+}
+
+// DecryptReaderAt
+//
+// Igual que DecryptReader, pero lee el texto plano a partir de cualquier offset.
+
+func TestDecryptReaderAt_ValidConfig(t *testing.T) {
+	for _, tt := range validConfigs {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := sio.DecryptReaderAt(bytes.NewReader(nil), tt.config)
+			assert.NoError(t, err)
+		})
+	}
+}
+
+func TestDecryptReaderAt_InvalidConfig(t *testing.T) {
+	for _, tt := range invalidConfigs {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := sio.DecryptReaderAt(bytes.NewReader(nil), tt.config)
+			assert.Error(t, err)
+		})
+	}
+}
+
+func TestDecryptReaderAt_Golden(t *testing.T) {
+	for _, v := range versions {
+		for _, s := range plaintextSizes {
+			t.Run(v.name+"/"+s.name, func(t *testing.T) {
+				got, err := decryptAt(golden(v.name, s.size), v.config, 0, math.MaxInt)
+				assert.Equal(t, outcome[[]byte]{testData(s.size), nil}, outcome[[]byte]{got, err})
+			})
+		}
+	}
+}
+
+func TestDecryptReaderAt_Ranges(t *testing.T) {
+	// Fronteras alrededor del límite entre el primer paquete (64 KiB) y el
+	// segundo (1 byte).
+	ranges := []struct {
+		name      string
+		offset, n int
+	}{
+		{"first byte", 0, 1},
+		{"from the second byte to the end", 1, maxPayloadSize},
+		{"last byte of the first package", maxPayloadSize - 1, 1},
+		{"across the package boundary", maxPayloadSize - 1, 2},
+		{"first byte of the second package", maxPayloadSize, 1},
+	}
+	plaintext := testData(maxPayloadSize + 1)
+	for _, v := range versions {
+		for _, r := range ranges {
+			t.Run(v.name+"/"+r.name, func(t *testing.T) {
+				got, err := decryptAt(golden(v.name, maxPayloadSize+1), v.config, r.offset, r.n)
+				want := plaintext[r.offset : r.offset+r.n]
+				assert.Equal(t, outcome[[]byte]{want, nil}, outcome[[]byte]{got, err})
+			})
+		}
+	}
+}
+
+func TestDecryptReaderAt_RandomRange(t *testing.T) {
+	// Datos aleatorios: cualquier trozo del texto plano se lee correctamente.
+	plaintext := testData(maxPayloadSize + 1)
+	rapid.Check(t, func(t *rapid.T) {
+		v := rapid.SampledFrom(versions).Draw(t, "version")
+		offset := rapid.IntRange(0, len(plaintext)).Draw(t, "offset")
+		n := rapid.IntRange(0, len(plaintext)-offset).Draw(t, "n")
+		got, err := decryptAt(golden(v.name, len(plaintext)), v.config, offset, n)
+		assert.Equal(t, outcome[[]byte]{plaintext[offset : offset+n], nil}, outcome[[]byte]{got, err})
+	})
+}
+
+func TestDecryptReaderAt_PastEnd(t *testing.T) {
+	// Doc de io.EOF: es el error que indica que no hay más datos. io.ReadAll lo
+	// trata como fin sin error, así que se esperan los bytes que quedan y nil.
+	// Cada paquete ocupa 64 KiB de offsets, así que hay dos fronteras: el final
+	// de los datos y el final del último paquete.
+	reads := []struct {
+		name            string
+		size, offset, n int // tamaño del texto plano, offset y bytes pedidos
+		want            []byte
+	}{
+		{"at the end", maxPayloadSize + 1, maxPayloadSize + 1, 1, []byte{}},
+		{"across the end", maxPayloadSize + 1, maxPayloadSize, 2, testData(maxPayloadSize + 1)[maxPayloadSize:]},
+		{"at the end of the last package", maxPayloadSize + 1, 2 * maxPayloadSize, 1, []byte{}},
+		{"one byte past the last package", maxPayloadSize + 1, 2*maxPayloadSize + 1, 1, []byte{}},
+		{"full package, one byte past the end", maxPayloadSize, maxPayloadSize + 1, 1, []byte{}},
+	}
+	for _, v := range versions {
+		for _, r := range reads {
+			t.Run(v.name+"/"+r.name, func(t *testing.T) {
+				got, err := decryptAt(golden(v.name, r.size), v.config, r.offset, r.n)
+				assert.Equal(t, outcome[[]byte]{r.want, nil}, outcome[[]byte]{got, err})
+			})
+		}
+	}
+}
+
+func TestDecryptReaderAt_NegativeOffset(t *testing.T) {
+	offsets := []int64{-1, math.MinInt64}
+	for _, v := range versions {
+		for _, offset := range offsets {
+			t.Run(fmt.Sprintf("%s/offset %d", v.name, offset), func(t *testing.T) {
+				r, err := sio.DecryptReaderAt(bytes.NewReader(golden(v.name, 1)), v.config)
+				if err == nil {
+					_, err = r.ReadAt(make([]byte, 1), offset)
+				}
+				assert.Error(t, err)
+			})
+		}
+	}
+}
+
+func TestDecryptReaderAt_Tampered(t *testing.T) {
+	// Doc de DecryptReaderAt: si el descifrado falla, el error es de tipo sio.Error.
+	for _, v := range versions {
+		for _, tt := range tamperings {
+			t.Run(v.name+"/"+tt.name, func(t *testing.T) {
+				stream := tt.tamper(golden(v.name, maxPayloadSize+1))
+				_, err := decryptAt(stream, v.config, 0, maxPayloadSize+1)
+				assert.ErrorAs(t, err, new(sio.Error))
+			})
+		}
+	}
+}
+
+func TestDecryptReaderAt_VersionOutsideRange(t *testing.T) {
+	// Un flujo con una versión fuera del rango debe dar error.
+	for _, tt := range versionsOutsideRange {
+		t.Run(tt.name, func(t *testing.T) {
+			config := sio.Config{Key: make([]byte, 32), MinVersion: tt.min, MaxVersion: tt.max}
+			_, err := decryptAt(golden(tt.data, 1), config, 0, 1)
+			assert.Error(t, err)
+		})
+	}
+}
+
+func TestDecryptReaderAt_SourceError(t *testing.T) {
+	// Mock de src que falla a partir de un byte del flujo cifrado: al
+	// principio, dentro de la cabecera y dentro del segundo paquete.
+	errSource := errors.New("source failed")
+	failures := []struct {
+		name   string
+		failAt int
+	}{
+		{"at start", 0},
+		{"inside the first header", headerSize / 2},
+		{"inside the second package", maxPackageSize + headerSize + 1},
+	}
+	for _, v := range versions {
+		for _, f := range failures {
+			t.Run(v.name+"/"+f.name, func(t *testing.T) {
+				src := failingReaderAt{golden(v.name, maxPayloadSize+1), f.failAt, errSource}
+				r, err := sio.DecryptReaderAt(src, v.config)
+				if err == nil {
+					_, err = io.ReadAll(io.NewSectionReader(r, 0, maxPayloadSize+1))
+				}
 				assert.ErrorIs(t, err, errSource)
 			})
 		}

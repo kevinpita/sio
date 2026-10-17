@@ -228,3 +228,75 @@ func TestDecrypt_RandomTamperedByte(t *testing.T) {
 		assert.ErrorAs(t, err, new(sio.Error))
 	})
 }
+
+func TestDecrypt_OnlyAuthenticatedOutput(t *testing.T) {
+	// Doc de Decrypt: solo escribe en dst los datos descifrados con éxito.
+	// DARE.md, sección 3: nada se entrega antes de comprobar el tag. Si un
+	// paquete está alterado, dst solo recibe los paquetes anteriores.
+	for _, v := range versions {
+		for _, tt := range authenticatedPrefixes {
+			t.Run(v.name+"/"+tt.name, func(t *testing.T) {
+				dst := bytes.NewBuffer([]byte{})
+				_, _ = sio.Decrypt(dst, bytes.NewReader(tt.tamper(golden(v.name, maxPayloadSize+1))), v.config)
+				assert.Equal(t, tt.want, dst.Bytes())
+			})
+		}
+	}
+}
+
+func TestDecrypt_VersionOutsideRange(t *testing.T) {
+	// Un flujo con una versión fuera del rango debe dar error.
+	for _, tt := range versionsOutsideRange {
+		t.Run(tt.name, func(t *testing.T) {
+			config := sio.Config{Key: make([]byte, 32), MinVersion: tt.min, MaxVersion: tt.max}
+			_, err := sio.Decrypt(io.Discard, bytes.NewReader(golden(tt.data, 1)), config)
+			assert.Error(t, err)
+		})
+	}
+}
+
+func TestDecrypt_SourceError(t *testing.T) {
+	// Mock de src que falla después de entregar parte del flujo cifrado.
+	errSource := errors.New("source failed")
+	prefixes := []struct {
+		name string
+		size int
+	}{
+		{"at start", 0},
+		{"inside the first header", headerSize / 2},
+		{"after one full package", maxPackageSize},
+		{"inside the second package", maxPackageSize + headerSize + 1},
+	}
+	for _, v := range versions {
+		for _, p := range prefixes {
+			t.Run(v.name+"/"+p.name, func(t *testing.T) {
+				stream := golden(v.name, maxPayloadSize+1)[:p.size]
+				src := io.MultiReader(bytes.NewReader(stream), iotest.ErrReader(errSource))
+				_, err := sio.Decrypt(io.Discard, src, v.config)
+				assert.ErrorIs(t, err, errSource)
+			})
+		}
+	}
+}
+
+func TestDecrypt_DestinationError(t *testing.T) {
+	// Mock de dst que falla a partir de un byte del texto plano.
+	errDestination := errors.New("destination failed")
+	failures := []struct {
+		name   string
+		failAt int
+	}{
+		{"at start", 0},
+		{"inside the first package", maxPayloadSize / 2},
+		{"inside the second package", maxPayloadSize},
+	}
+	for _, v := range versions {
+		for _, f := range failures {
+			t.Run(v.name+"/"+f.name, func(t *testing.T) {
+				dst := &failingWriter{failAt: f.failAt, err: errDestination}
+				_, err := sio.Decrypt(dst, bytes.NewReader(golden(v.name, maxPayloadSize+1)), v.config)
+				assert.ErrorIs(t, err, errDestination)
+			})
+		}
+	}
+}

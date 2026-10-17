@@ -300,3 +300,63 @@ func TestDecrypt_DestinationError(t *testing.T) {
 		}
 	}
 }
+
+// DecryptBuffer
+//
+// No recibe interfaces (src y dst son []byte), así que no hacen falta mocks.
+
+func TestDecryptBuffer_ValidConfig(t *testing.T) {
+	// Igual que en Decrypt: con una configuración válida, unos datos que no
+	// son DARE solo pueden fallar con un error de tipo sio.Error.
+	for _, tt := range validConfigs {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := sio.DecryptBuffer(nil, testData(overhead+1), tt.config)
+			assert.ErrorAs(t, err, new(sio.Error))
+		})
+	}
+}
+
+func TestDecryptBuffer_InvalidConfig(t *testing.T) {
+	// Los datos son un flujo DARE 1.0 válido para la clave a cero: el error
+	// solo puede venir de la configuración.
+	for _, tt := range invalidConfigs {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := sio.DecryptBuffer(nil, golden("1.0", 1), tt.config)
+			assert.Error(t, err)
+		})
+	}
+}
+
+func TestDecryptBuffer_Golden(t *testing.T) {
+	for _, v := range versions {
+		for _, s := range plaintextSizes {
+			t.Run(v.name+"/"+s.name, func(t *testing.T) {
+				got, err := sio.DecryptBuffer([]byte{}, golden(v.name, s.size), v.config)
+				assert.Equal(t, outcome[[]byte]{testData(s.size), nil}, outcome[[]byte]{got, err})
+			})
+		}
+	}
+}
+
+func TestDecryptBuffer_AppendsToDst(t *testing.T) {
+	// Doc de DecryptBuffer: el texto plano se añade al final de dst.
+	// Particiones de dst: nil, vacío, con datos y con datos y capacidad libre.
+	dsts := []struct {
+		name string
+		dst  func() []byte
+	}{
+		{"nil", func() []byte { return nil }},
+		{"empty", func() []byte { return []byte{} }},
+		{"with data", func() []byte { return []byte("abc") }},
+		{"with data and spare capacity", func() []byte { return append(make([]byte, 0, maxPayloadSize+4), "abc"...) }},
+	}
+	for _, v := range versions {
+		for _, d := range dsts {
+			t.Run(v.name+"/"+d.name, func(t *testing.T) {
+				want := append(d.dst(), testData(maxPayloadSize+1)...)
+				got, err := sio.DecryptBuffer(d.dst(), golden(v.name, maxPayloadSize+1), v.config)
+				assert.Equal(t, outcome[[]byte]{want, nil}, outcome[[]byte]{got, err})
+			})
+		}
+	}
+}

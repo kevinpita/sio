@@ -151,3 +151,80 @@ func TestEncrypt_DestinationError(t *testing.T) {
 		}
 	}
 }
+
+// Decrypt
+//
+// La entrada son las salidas de referencia de testdata y el resultado
+// esperado es el texto plano conocido, testData(tamaño).
+
+func TestDecrypt_ValidConfig(t *testing.T) {
+	// Con una configuración válida, unos datos que no son DARE (byte de versión
+	// 0x00) solo pueden fallar al descifrar: error de tipo sio.Error (doc de
+	// Decrypt). Un error de configuración no es de ese tipo.
+	for _, tt := range validConfigs {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := sio.Decrypt(io.Discard, bytes.NewReader(testData(overhead+1)), tt.config)
+			assert.ErrorAs(t, err, new(sio.Error))
+		})
+	}
+}
+
+func TestDecrypt_InvalidConfig(t *testing.T) {
+	// Los datos son un flujo DARE 1.0 válido para la clave a cero: el error
+	// solo puede venir de la configuración.
+	for _, tt := range invalidConfigs {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := sio.Decrypt(io.Discard, bytes.NewReader(golden("1.0", 1)), tt.config)
+			assert.Error(t, err)
+		})
+	}
+}
+
+func TestDecrypt_Golden(t *testing.T) {
+	for _, v := range versions {
+		for _, s := range plaintextSizes {
+			t.Run(v.name+"/"+s.name, func(t *testing.T) {
+				dst := bytes.NewBuffer([]byte{})
+				_, err := sio.Decrypt(dst, bytes.NewReader(golden(v.name, s.size)), v.config)
+				assert.Equal(t, outcome[[]byte]{testData(s.size), nil}, outcome[[]byte]{dst.Bytes(), err})
+			})
+		}
+	}
+}
+
+func TestDecrypt_ByteCount(t *testing.T) {
+	// Doc de Decrypt: devuelve el número de bytes escritos en dst.
+	for _, v := range versions {
+		for _, s := range plaintextSizes {
+			t.Run(v.name+"/"+s.name, func(t *testing.T) {
+				n, err := sio.Decrypt(io.Discard, bytes.NewReader(golden(v.name, s.size)), v.config)
+				assert.Equal(t, outcome[int64]{int64(s.size), nil}, outcome[int64]{n, err})
+			})
+		}
+	}
+}
+
+func TestDecrypt_Tampered(t *testing.T) {
+	// Doc de Decrypt: si el descifrado falla, el error es de tipo sio.Error.
+	for _, v := range versions {
+		for _, tt := range tamperings {
+			t.Run(v.name+"/"+tt.name, func(t *testing.T) {
+				stream := tt.tamper(golden(v.name, maxPayloadSize+1))
+				_, err := sio.Decrypt(io.Discard, bytes.NewReader(stream), v.config)
+				assert.ErrorAs(t, err, new(sio.Error))
+			})
+		}
+	}
+}
+
+func TestDecrypt_RandomTamperedByte(t *testing.T) {
+	// Datos aleatorios: cambiar cualquier byte del flujo hace fallar el descifrado.
+	rapid.Check(t, func(t *rapid.T) {
+		v := rapid.SampledFrom(versions).Draw(t, "version")
+		stream := golden(v.name, maxPayloadSize+1)
+		pos := rapid.IntRange(0, len(stream)-1).Draw(t, "position")
+		stream[pos] ^= rapid.ByteRange(1, 255).Draw(t, "xor")
+		_, err := sio.Decrypt(io.Discard, bytes.NewReader(stream), v.config)
+		assert.ErrorAs(t, err, new(sio.Error))
+	})
+}

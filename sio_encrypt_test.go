@@ -360,3 +360,50 @@ func TestDecryptBuffer_AppendsToDst(t *testing.T) {
 		}
 	}
 }
+
+func TestDecryptBuffer_Tampered(t *testing.T) {
+	// Doc de DecryptBuffer: si el descifrado falla, el error es de tipo sio.Error.
+	for _, v := range versions {
+		for _, tt := range tamperings {
+			t.Run(v.name+"/"+tt.name, func(t *testing.T) {
+				_, err := sio.DecryptBuffer(nil, tt.tamper(golden(v.name, maxPayloadSize+1)), v.config)
+				assert.ErrorAs(t, err, new(sio.Error))
+			})
+		}
+	}
+}
+
+func TestDecryptBuffer_RandomTamperedByte(t *testing.T) {
+	// Datos aleatorios: cambiar cualquier byte del flujo hace fallar el descifrado.
+	rapid.Check(t, func(t *rapid.T) {
+		v := rapid.SampledFrom(versions).Draw(t, "version")
+		stream := golden(v.name, maxPayloadSize+1)
+		pos := rapid.IntRange(0, len(stream)-1).Draw(t, "position")
+		stream[pos] ^= rapid.ByteRange(1, 255).Draw(t, "xor")
+		_, err := sio.DecryptBuffer(nil, stream, v.config)
+		assert.ErrorAs(t, err, new(sio.Error))
+	})
+}
+
+func TestDecryptBuffer_NoOutputOnFailure(t *testing.T) {
+	// Doc de DecryptBuffer: solo devuelve datos si el descifrado tiene éxito.
+	for _, v := range versions {
+		for _, tt := range tamperings {
+			t.Run(v.name+"/"+tt.name, func(t *testing.T) {
+				got, _ := sio.DecryptBuffer(nil, tt.tamper(golden(v.name, maxPayloadSize+1)), v.config)
+				assert.Empty(t, got)
+			})
+		}
+	}
+}
+
+func TestDecryptBuffer_VersionOutsideRange(t *testing.T) {
+	// Un flujo con una versión fuera del rango debe dar error.
+	for _, tt := range versionsOutsideRange {
+		t.Run(tt.name, func(t *testing.T) {
+			config := sio.Config{Key: make([]byte, 32), MinVersion: tt.min, MaxVersion: tt.max}
+			_, err := sio.DecryptBuffer(nil, golden(tt.data, 1), config)
+			assert.Error(t, err)
+		})
+	}
+}

@@ -153,6 +153,28 @@ func TestEncryptWriter_DestinationError(t *testing.T) {
 	}
 }
 
+func TestEncryptWriter_WriteAfterClose(t *testing.T) {
+	// Unidad con estado. Doc de EncryptWriter: Close termina el proceso, así que
+	// después ya no se puede escribir en el flujo. Se espera que Close vaya
+	// bien (error nil) y que el Write posterior falle (true). Close dos veces
+	// no se prueba: doc de io.Closer, "the behavior of Close after the first
+	// call is undefined".
+	for _, v := range versions {
+		t.Run(v.name, func(t *testing.T) {
+			w, err := sio.EncryptWriter(&bytes.Buffer{}, v.config)
+			writeFailed := false
+			if err == nil {
+				err = writeAll(w, testData(1), 0)
+			}
+			if err == nil {
+				_, writeErr := w.Write(testData(1))
+				writeFailed = writeErr != nil
+			}
+			assert.Equal(t, outcome[bool]{true, nil}, outcome[bool]{writeFailed, err})
+		})
+	}
+}
+
 // DecryptWriter
 //
 // La entrada son las salidas de referencia de testdata y el resultado
@@ -293,5 +315,27 @@ func TestDecryptWriter_DestinationError(t *testing.T) {
 				assert.ErrorIs(t, err, errDestination)
 			})
 		}
+	}
+}
+
+func TestDecryptWriter_WriteAfterClose(t *testing.T) {
+	// Unidad con estado. Doc de DecryptWriter: Close termina el proceso, así que
+	// después ya no se puede escribir en el flujo. Se espera que Close vaya
+	// bien (error nil) y que el Write posterior falle (true). Close dos veces
+	// no se prueba: doc de io.Closer, "the behavior of Close after the first
+	// call is undefined".
+	for _, v := range versions {
+		t.Run(v.name, func(t *testing.T) {
+			w, err := sio.DecryptWriter(&bytes.Buffer{}, v.config)
+			writeFailed := false
+			if err == nil {
+				err = writeAll(w, golden(v.name, 1), 0)
+			}
+			if err == nil {
+				_, writeErr := w.Write(golden(v.name, 1))
+				writeFailed = writeErr != nil
+			}
+			assert.Equal(t, outcome[bool]{true, nil}, outcome[bool]{writeFailed, err})
+		})
 	}
 }

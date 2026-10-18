@@ -197,6 +197,19 @@ func TestDecryptReader_Golden(t *testing.T) {
 	}
 }
 
+func TestDecryptReader_DefaultConfig(t *testing.T) {
+	// La configuración por defecto admite la 1.0 y la 2.0 (doc de Config), así
+	// que descifra las salidas de referencia de las dos.
+	for _, v := range versions {
+		for _, s := range plaintextSizes {
+			t.Run(v.name+"/"+s.name, func(t *testing.T) {
+				got, err := decrypt(bytes.NewReader(golden(v.name, s.size)), defaultConfig, 0)
+				assert.Equal(t, outcome[[]byte]{testData(s.size), nil}, outcome[[]byte]{got, err})
+			})
+		}
+	}
+}
+
 func TestDecryptReader_AnyReadSize(t *testing.T) {
 	// La salida no depende del tamaño del buffer de lectura.
 	// Fronteras: 1 byte y un payload completo ±1.
@@ -311,6 +324,19 @@ func TestDecryptReaderAt_Golden(t *testing.T) {
 		for _, s := range plaintextSizes {
 			t.Run(v.name+"/"+s.name, func(t *testing.T) {
 				got, err := decryptAt(golden(v.name, s.size), v.config, 0, math.MaxInt)
+				assert.Equal(t, outcome[[]byte]{testData(s.size), nil}, outcome[[]byte]{got, err})
+			})
+		}
+	}
+}
+
+func TestDecryptReaderAt_DefaultConfig(t *testing.T) {
+	// La configuración por defecto admite la 1.0 y la 2.0 (doc de Config), así
+	// que descifra las salidas de referencia de las dos.
+	for _, v := range versions {
+		for _, s := range plaintextSizes {
+			t.Run(v.name+"/"+s.name, func(t *testing.T) {
+				got, err := decryptAt(golden(v.name, s.size), defaultConfig, 0, math.MaxInt)
 				assert.Equal(t, outcome[[]byte]{testData(s.size), nil}, outcome[[]byte]{got, err})
 			})
 		}

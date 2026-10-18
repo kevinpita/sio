@@ -187,6 +187,19 @@ func TestDecryptWriter_Golden(t *testing.T) {
 	}
 }
 
+func TestDecryptWriter_DefaultConfig(t *testing.T) {
+	// La configuración por defecto admite la 1.0 y la 2.0 (doc de Config), así
+	// que descifra las salidas de referencia de las dos.
+	for _, v := range versions {
+		for _, s := range plaintextSizes {
+			t.Run(v.name+"/"+s.name, func(t *testing.T) {
+				got, err := decryptW(golden(v.name, s.size), defaultConfig, 0)
+				assert.Equal(t, outcome[[]byte]{testData(s.size), nil}, outcome[[]byte]{got, err})
+			})
+		}
+	}
+}
+
 func TestDecryptWriter_AnyWriteSize(t *testing.T) {
 	// La salida no depende del tamaño de cada Write.
 	// Fronteras: 1 byte, la cabecera y un paquete completo ±1.

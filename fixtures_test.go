@@ -49,6 +49,10 @@ var versions = []struct {
 	}},
 }
 
+// Configuración por defecto: solo la clave (doc de Config). Admite la 1.0 y la
+// 2.0, así que al descifrar detecta la versión de los datos.
+var defaultConfig = sio.Config{Key: make([]byte, 32)}
+
 // Cifrados y su valor en el byte 1 de la cabecera según DARE.md.
 var cipherSuites = []struct {
 	name   string

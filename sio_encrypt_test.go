@@ -192,6 +192,21 @@ func TestDecrypt_Golden(t *testing.T) {
 	}
 }
 
+func TestDecrypt_DefaultConfig(t *testing.T) {
+	// La configuración por defecto admite la 1.0 y la 2.0 (doc de Config), así
+	// que descifra las salidas de referencia de las dos.
+	for _, v := range versions {
+		for _, s := range plaintextSizes {
+			t.Run(v.name+"/"+s.name, func(t *testing.T) {
+				dst := bytes.NewBuffer([]byte{})
+				_, err := sio.Decrypt(dst, bytes.NewReader(golden(v.name, s.size)), defaultConfig)
+				got := dst.Bytes()
+				assert.Equal(t, outcome[[]byte]{testData(s.size), nil}, outcome[[]byte]{got, err})
+			})
+		}
+	}
+}
+
 func TestDecrypt_ByteCount(t *testing.T) {
 	// Doc de Decrypt: devuelve el número de bytes escritos en dst.
 	for _, v := range versions {
@@ -332,6 +347,19 @@ func TestDecryptBuffer_Golden(t *testing.T) {
 		for _, s := range plaintextSizes {
 			t.Run(v.name+"/"+s.name, func(t *testing.T) {
 				got, err := sio.DecryptBuffer([]byte{}, golden(v.name, s.size), v.config)
+				assert.Equal(t, outcome[[]byte]{testData(s.size), nil}, outcome[[]byte]{got, err})
+			})
+		}
+	}
+}
+
+func TestDecryptBuffer_DefaultConfig(t *testing.T) {
+	// La configuración por defecto admite la 1.0 y la 2.0 (doc de Config), así
+	// que descifra las salidas de referencia de las dos.
+	for _, v := range versions {
+		for _, s := range plaintextSizes {
+			t.Run(v.name+"/"+s.name, func(t *testing.T) {
+				got, err := sio.DecryptBuffer([]byte{}, golden(v.name, s.size), defaultConfig)
 				assert.Equal(t, outcome[[]byte]{testData(s.size), nil}, outcome[[]byte]{got, err})
 			})
 		}

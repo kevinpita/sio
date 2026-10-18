@@ -163,6 +163,26 @@ func TestEncryptReader_SourceError(t *testing.T) {
 	}
 }
 
+func TestEncryptReader_ReadAfterEOF(t *testing.T) {
+	// Unidad con estado: después de leer todo, doc de io.Reader: "The next
+	// Read should return 0, EOF".
+	for _, v := range versions {
+		for _, s := range plaintextSizes {
+			t.Run(v.name+"/"+s.name, func(t *testing.T) {
+				r, err := sio.EncryptReader(bytes.NewReader(testData(s.size)), v.config)
+				if err == nil {
+					_, err = io.ReadAll(r)
+				}
+				n := 0
+				if err == nil {
+					n, err = r.Read(make([]byte, 1))
+				}
+				assert.Equal(t, outcome[int]{0, io.EOF}, outcome[int]{n, err})
+			})
+		}
+	}
+}
+
 // DecryptReader
 //
 // La entrada son las salidas de referencia de testdata y el resultado
@@ -292,6 +312,26 @@ func TestDecryptReader_SourceError(t *testing.T) {
 				src := io.MultiReader(bytes.NewReader(stream), iotest.ErrReader(errSource))
 				_, err := decrypt(src, v.config, 0)
 				assert.ErrorIs(t, err, errSource)
+			})
+		}
+	}
+}
+
+func TestDecryptReader_ReadAfterEOF(t *testing.T) {
+	// Unidad con estado: después de leer todo, doc de io.Reader: "The next
+	// Read should return 0, EOF".
+	for _, v := range versions {
+		for _, s := range plaintextSizes {
+			t.Run(v.name+"/"+s.name, func(t *testing.T) {
+				r, err := sio.DecryptReader(bytes.NewReader(golden(v.name, s.size)), v.config)
+				if err == nil {
+					_, err = io.ReadAll(r)
+				}
+				n := 0
+				if err == nil {
+					n, err = r.Read(make([]byte, 1))
+				}
+				assert.Equal(t, outcome[int]{0, io.EOF}, outcome[int]{n, err})
 			})
 		}
 	}
@@ -466,6 +506,39 @@ func TestDecryptReaderAt_SourceError(t *testing.T) {
 					_, err = io.ReadAll(io.NewSectionReader(r, 0, maxPayloadSize+1))
 				}
 				assert.ErrorIs(t, err, errSource)
+			})
+		}
+	}
+}
+
+func TestDecryptReaderAt_ReadOrder(t *testing.T) {
+	// Doc de io.ReaderAt: cada lectura indica su offset, así que el resultado
+	// no depende de las lecturas anteriores. Se lee un trozo, luego otro y
+	// luego el primero otra vez: debe salir lo mismo.
+	orders := []struct {
+		name          string
+		first, second int // offsets de las dos primeras lecturas
+	}{
+		{"first package, then second package", 0, maxPayloadSize},
+		{"second package, then first package", maxPayloadSize, 0},
+		{"same offset twice", maxPayloadSize - 1, maxPayloadSize - 1},
+	}
+	plaintext := testData(maxPayloadSize + 1)
+	for _, v := range versions {
+		for _, o := range orders {
+			t.Run(v.name+"/"+o.name, func(t *testing.T) {
+				r, err := sio.DecryptReaderAt(bytes.NewReader(golden(v.name, maxPayloadSize+1)), v.config)
+				var got []byte
+				if err == nil {
+					// Las dos primeras lecturas también deben ir bien: sus
+					// errores se juntan con el de la tercera.
+					_, err1 := io.ReadAll(io.NewSectionReader(r, int64(o.first), 2))
+					_, err2 := io.ReadAll(io.NewSectionReader(r, int64(o.second), 2))
+					got, err = io.ReadAll(io.NewSectionReader(r, int64(o.first), 2))
+					err = errors.Join(err1, err2, err)
+				}
+				want := plaintext[o.first:min(o.first+2, len(plaintext))]
+				assert.Equal(t, outcome[[]byte]{want, nil}, outcome[[]byte]{got, err})
 			})
 		}
 	}

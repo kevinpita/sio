@@ -53,6 +53,13 @@ var versions = []struct {
 // 2.0, así que al descifrar detecta la versión de los datos.
 var defaultConfig = sio.Config{Key: make([]byte, 32)}
 
+// Configuraciones que admiten una sola versión (doc de Config: MinVersion y
+// MaxVersion son la versión mínima y máxima admitidas).
+var (
+	onlyVersion10 = sio.Config{Key: make([]byte, 32), MinVersion: sio.Version10, MaxVersion: sio.Version10}
+	onlyVersion20 = sio.Config{Key: make([]byte, 32), MinVersion: sio.Version20, MaxVersion: sio.Version20}
+)
+
 // Cifrados y su valor en el byte 1 de la cabecera según DARE.md.
 var cipherSuites = []struct {
 	name   string

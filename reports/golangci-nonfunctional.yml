@@ -1,0 +1,20 @@
+version: "2"
+linters:
+  default: none
+  enable: [revive, gocritic, misspell, gocyclo, gocognit, funlen, godot, staticcheck, govet, dupl, nestif, lll]
+  settings:
+    staticcheck:
+      checks: ["ST*"]
+    govet:
+      disable-all: true
+      enable: [fieldalignment]
+    gocyclo:
+      min-complexity: 15
+    gocognit:
+      min-complexity: 20
+    gocritic:
+      enabled-tags: [diagnostic, style, performance]
+    revive:
+      enable-all-rules: false
+formatters:
+  enable: [gofmt]

@@ -446,6 +446,42 @@ func TestDecryptReaderAt_PastEnd(t *testing.T) {
 	}
 }
 
+func TestDecryptReaderAt_LastPackages(t *testing.T) {
+	// DARE.md: el número de secuencia es un uint32, así que un flujo tiene hasta
+	// 2^32 paquetes y el último tiene el número 2^32-1. Un flujo tan grande no
+	// cabe en memoria: se cifra un solo paquete de 2 bytes con ese número de
+	// secuencia, un mock de io.ReaderAt lo pone en su offset del flujo y se lee
+	// su segundo byte. (Con DARE 2.0, una lectura en el primer byte de un
+	// paquete empieza en el paquete anterior, que el mock no tiene.)
+	packages := []struct {
+		name string
+		seq  uint32
+	}{
+		{"one before the last package", math.MaxUint32 - 1},
+		{"last package", math.MaxUint32},
+	}
+	plaintext := testData(2)
+	for _, v := range versions {
+		for _, p := range packages {
+			t.Run(v.name+"/"+p.name, func(t *testing.T) {
+				config := v.config
+				config.SequenceNumber = p.seq
+				stream := &bytes.Buffer{}
+				if _, err := sio.Encrypt(stream, bytes.NewReader(plaintext), config); err != nil {
+					t.Fatal(err)
+				}
+				src := sparseReaderAt{stream.Bytes(), int64(p.seq) * maxPackageSize}
+				r, err := sio.DecryptReaderAt(src, v.config)
+				got := make([]byte, 1)
+				if err == nil {
+					_, err = r.ReadAt(got, int64(p.seq)*maxPayloadSize+1)
+				}
+				assert.Equal(t, outcome[[]byte]{plaintext[1:], nil}, outcome[[]byte]{got, err})
+			})
+		}
+	}
+}
+
 func TestDecryptReaderAt_NegativeOffset(t *testing.T) {
 	offsets := []int64{-1, math.MinInt64}
 	for _, v := range versions {

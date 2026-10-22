@@ -78,6 +78,24 @@ func (f failingReaderAt) ReadAt(p []byte, off int64) (int, error) {
 	return copy(p, f.data[off:]), nil
 }
 
+// sparseReaderAt es un mock de io.ReaderAt para un flujo muy grande: solo tiene
+// los bytes de data, colocados a partir del offset base. Antes no hay nada.
+type sparseReaderAt struct {
+	data []byte
+	base int64
+}
+
+func (s sparseReaderAt) ReadAt(p []byte, off int64) (int, error) {
+	if off < s.base || off-s.base >= int64(len(s.data)) {
+		return 0, io.EOF
+	}
+	n := copy(p, s.data[off-s.base:])
+	if n < len(p) {
+		return n, io.EOF
+	}
+	return n, nil
+}
+
 // encryptW cifra src con EncryptWriter, escribiéndolo en trozos de chunk bytes
 // (0: todo de una vez), y cierra el writer.
 func encryptW(src []byte, config sio.Config, chunk int) ([]byte, error) {

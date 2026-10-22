@@ -1,0 +1,8 @@
+version: "2"
+linters:
+  default: none
+  enable: [govet, staticcheck, gosec, errcheck, ineffassign, unused, nilerr, errorlint, forcetypeassert, makezero, exhaustive, durationcheck, bodyclose]
+  settings:
+    govet:
+      enable-all: true
+      disable: [fieldalignment]

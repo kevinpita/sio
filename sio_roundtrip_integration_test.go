@@ -99,9 +99,10 @@ func TestIntegration_RandomRoundTrip(t *testing.T) {
 
 func TestIntegration_CipherSuitesRoundTrip(t *testing.T) {
 	// Se cifra con un solo cifrado y se descifra con la configuración por
-	// defecto, que admite los dos (doc de Config). Tamaños de clave según la
-	// doc de cada constante: AES_GCM con 128 o 256 bits, CHACHA20_POLY1305
-	// con 256 bits.
+	// defecto, que admite los dos (doc de Config). Tamaños de clave: AES_GCM
+	// con 128 o 256 bits (doc de AES_GCM). CHACHA20_POLY1305 usa claves de 256
+	// bits, pero setConfigDefaults acepta también 128 bits para los dos
+	// cifrados, y newChaCha20 la convierte en una clave de 256 bits.
 	ciphers := []struct {
 		name    string
 		suite   byte
@@ -109,6 +110,7 @@ func TestIntegration_CipherSuitesRoundTrip(t *testing.T) {
 	}{
 		{"AES-GCM/128-bit key", sio.AES_GCM, 16},
 		{"AES-GCM/256-bit key", sio.AES_GCM, 32},
+		{"ChaCha20-Poly1305/128-bit key", sio.CHACHA20_POLY1305, 16},
 		{"ChaCha20-Poly1305/256-bit key", sio.CHACHA20_POLY1305, 32},
 	}
 	plaintext := testData(maxPayloadSize + 1)

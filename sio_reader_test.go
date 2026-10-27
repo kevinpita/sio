@@ -141,7 +141,7 @@ func TestEncryptReader_SlowSource(t *testing.T) {
 
 func TestEncryptReader_SourceError(t *testing.T) {
 	// Mock de src que falla después de entregar algunos bytes: el error
-	// debe llegar al que lee.
+	// debe llegar al que lee. Buffer de lectura: menor y mayor que un paquete.
 	errSource := errors.New("source failed")
 	prefixes := []struct {
 		name string
@@ -154,11 +154,13 @@ func TestEncryptReader_SourceError(t *testing.T) {
 	}
 	for _, v := range versions {
 		for _, p := range prefixes {
-			t.Run(v.name+"/"+p.name, func(t *testing.T) {
-				src := io.MultiReader(bytes.NewReader(testData(p.size)), iotest.ErrReader(errSource))
-				_, err := encrypt(src, v.config, 0)
-				assert.ErrorIs(t, err, errSource)
-			})
+			for _, size := range []int{1, maxPackageSize} {
+				t.Run(fmt.Sprintf("%s/%s/buffer %d", v.name, p.name, size), func(t *testing.T) {
+					src := io.MultiReader(bytes.NewReader(testData(p.size)), iotest.ErrReader(errSource))
+					_, err := encrypt(src, v.config, size)
+					assert.ErrorIs(t, err, errSource)
+				})
+			}
 		}
 	}
 }
@@ -254,6 +256,48 @@ func TestDecryptReader_Tampered(t *testing.T) {
 				assert.ErrorAs(t, err, new(sio.Error))
 			})
 		}
+	}
+}
+
+func TestDecryptReader_DataAfterEnd(t *testing.T) {
+	// Datos detrás del último paquete: en 1.0 su número de secuencia no es el
+	// siguiente (DARE.md) y en 2.0 van detrás del paquete final (V2.md). Los
+	// dos casos deben dar sio.Error.
+	for _, v := range versions {
+		t.Run(v.name, func(t *testing.T) {
+			stream := append(golden(v.name, maxPayloadSize), golden(v.name, 1)...)
+			_, err := decrypt(bytes.NewReader(stream), v.config, 0)
+			assert.ErrorAs(t, err, new(sio.Error))
+		})
+	}
+}
+
+func TestDecryptReader_LastPackageRemoved(t *testing.T) {
+	// V2.md: el último paquete lleva una marca de final, así que un flujo 2.0
+	// sin él está incompleto. DARE 1.0 no tiene esa marca y DARE.md no promete
+	// que lo detecte, así que solo se prueba la 2.0. Buffer: menor que un
+	// paquete y de dos paquetes.
+	stream := golden("2.0", maxPayloadSize+1)[:maxPackageSize]
+	for _, size := range []int{1, 2 * maxPayloadSize} {
+		t.Run(fmt.Sprintf("2.0/buffer %d", size), func(t *testing.T) {
+			_, err := decrypt(bytes.NewReader(stream), onlyVersion20, size)
+			assert.ErrorAs(t, err, new(sio.Error))
+		})
+	}
+}
+
+func TestDecryptReader_EmptyRead(t *testing.T) {
+	// Doc de io.Reader: con len(p) == 0, Read puede devolver 0 y nil. Se prueba
+	// como primera lectura, antes de saber la versión de los datos.
+	for _, v := range versions {
+		t.Run(v.name, func(t *testing.T) {
+			r, err := sio.DecryptReader(bytes.NewReader(golden(v.name, 1)), defaultConfig)
+			n := -1
+			if err == nil {
+				n, err = r.Read(nil)
+			}
+			assert.Equal(t, outcome[int]{0, nil}, outcome[int]{n, err})
+		})
 	}
 }
 
@@ -507,6 +551,34 @@ func TestDecryptReaderAt_Tampered(t *testing.T) {
 				assert.ErrorAs(t, err, new(sio.Error))
 			})
 		}
+	}
+}
+
+func TestDecryptReaderAt_UnknownVersion(t *testing.T) {
+	// Con la configuración por defecto, DecryptReaderAt detecta la versión en el
+	// primer byte. Un byte que no es 1.0 ni 2.0 debe dar sio.Error.
+	for _, v := range versions {
+		t.Run(v.name, func(t *testing.T) {
+			stream := golden(v.name, 1)
+			stream[0] = 0x30
+			_, err := decryptAt(stream, defaultConfig, 0, 1)
+			assert.ErrorAs(t, err, new(sio.Error))
+		})
+	}
+}
+
+func TestDecryptReaderAt_EmptyRead(t *testing.T) {
+	// Doc de io.ReaderAt: con len(p) == 0 no hay nada que leer. Se prueba como
+	// primera lectura, antes de saber la versión de los datos.
+	for _, v := range versions {
+		t.Run(v.name, func(t *testing.T) {
+			r, err := sio.DecryptReaderAt(bytes.NewReader(golden(v.name, 1)), defaultConfig)
+			n := -1
+			if err == nil {
+				n, err = r.ReadAt(nil, 0)
+			}
+			assert.Equal(t, outcome[int]{0, nil}, outcome[int]{n, err})
+		})
 	}
 }
 

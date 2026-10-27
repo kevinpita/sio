@@ -142,14 +142,61 @@ func TestEncryptWriter_DestinationError(t *testing.T) {
 	}
 	for _, v := range versions {
 		for _, f := range failures {
-			t.Run(v.name+"/"+f.name, func(t *testing.T) {
-				w, err := sio.EncryptWriter(&failingWriter{failAt: f.failAt, err: errDestination}, v.config)
-				if err == nil {
-					err = writeAll(w, testData(maxPayloadSize+1), 0)
-				}
-				assert.ErrorIs(t, err, errDestination)
-			})
+			for _, c := range writeChunks {
+				t.Run(v.name+"/"+f.name+"/"+c.name, func(t *testing.T) {
+					w, err := sio.EncryptWriter(&failingWriter{failAt: f.failAt, err: errDestination}, v.config)
+					if err == nil {
+						err = writeAll(w, testData(maxPayloadSize+1), c.chunk)
+					}
+					assert.ErrorIs(t, err, errDestination)
+				})
+			}
 		}
+	}
+}
+
+func TestEncryptWriter_WriteAfterError(t *testing.T) {
+	// Unidad con estado: después de un Write que falla porque dst falla, el
+	// flujo cifrado ya está roto, así que el siguiente Write también falla.
+	for _, v := range versions {
+		t.Run(v.name, func(t *testing.T) {
+			w, err := sio.EncryptWriter(&failingWriter{err: errors.New("destination failed")}, v.config)
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, _ = w.Write(testData(maxPayloadSize + 1))
+			_, err = w.Write(testData(1))
+			assert.Error(t, err)
+		})
+	}
+}
+
+func TestEncryptWriter_CloseAfterError(t *testing.T) {
+	// Doc de EncryptWriter: Close termina el cifrado. Si un Write ya falló, el
+	// cifrado no puede terminar bien, así que Close devuelve error.
+	for _, v := range versions {
+		t.Run(v.name, func(t *testing.T) {
+			w, err := sio.EncryptWriter(&failingWriter{err: errors.New("destination failed")}, v.config)
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, _ = w.Write(testData(maxPayloadSize + 1))
+			assert.Error(t, w.Close())
+		})
+	}
+}
+
+func TestEncryptWriter_EmptyWrite(t *testing.T) {
+	// Doc de io.Writer: Write de 0 bytes escribe 0 bytes.
+	for _, v := range versions {
+		t.Run(v.name, func(t *testing.T) {
+			w, err := sio.EncryptWriter(&bytes.Buffer{}, v.config)
+			n := -1
+			if err == nil {
+				n, err = w.Write(nil)
+			}
+			assert.Equal(t, outcome[int]{0, nil}, outcome[int]{n, err})
+		})
 	}
 }
 
@@ -211,13 +258,15 @@ func TestDecryptWriter_Golden(t *testing.T) {
 
 func TestDecryptWriter_DefaultConfig(t *testing.T) {
 	// La configuración por defecto admite la 1.0 y la 2.0 (doc de Config), así
-	// que descifra las salidas de referencia de las dos.
+	// que descifra las salidas de referencia de las dos, en uno o en varios Write.
 	for _, v := range versions {
 		for _, s := range plaintextSizes {
-			t.Run(v.name+"/"+s.name, func(t *testing.T) {
-				got, err := decryptW(golden(v.name, s.size), defaultConfig, 0)
-				assert.Equal(t, outcome[[]byte]{testData(s.size), nil}, outcome[[]byte]{got, err})
-			})
+			for _, c := range writeChunks {
+				t.Run(v.name+"/"+s.name+"/"+c.name, func(t *testing.T) {
+					got, err := decryptW(golden(v.name, s.size), defaultConfig, c.chunk)
+					assert.Equal(t, outcome[[]byte]{testData(s.size), nil}, outcome[[]byte]{got, err})
+				})
+			}
 		}
 	}
 }
@@ -259,12 +308,42 @@ func TestDecryptWriter_Tampered(t *testing.T) {
 	// Doc de DecryptWriter: si el descifrado falla, el error es de tipo sio.Error.
 	for _, v := range versions {
 		for _, tt := range tamperings {
-			t.Run(v.name+"/"+tt.name, func(t *testing.T) {
-				stream := tt.tamper(golden(v.name, maxPayloadSize+1))
-				_, err := decryptW(stream, v.config, 0)
-				assert.ErrorAs(t, err, new(sio.Error))
-			})
+			for _, c := range writeChunks {
+				t.Run(v.name+"/"+tt.name+"/"+c.name, func(t *testing.T) {
+					stream := tt.tamper(golden(v.name, maxPayloadSize+1))
+					_, err := decryptW(stream, v.config, c.chunk)
+					assert.ErrorAs(t, err, new(sio.Error))
+				})
+			}
 		}
+	}
+}
+
+func TestDecryptWriter_UnknownVersion(t *testing.T) {
+	// Con la configuración por defecto, DecryptWriter detecta la versión en el
+	// primer byte. Un byte que no es 1.0 ni 2.0 debe dar sio.Error.
+	for _, v := range versions {
+		t.Run(v.name, func(t *testing.T) {
+			stream := golden(v.name, 1)
+			stream[0] = 0x30
+			_, err := decryptW(stream, defaultConfig, 0)
+			assert.ErrorAs(t, err, new(sio.Error))
+		})
+	}
+}
+
+func TestDecryptWriter_EmptyWrite(t *testing.T) {
+	// Doc de io.Writer: Write de 0 bytes escribe 0 bytes. Se prueba como primer
+	// Write, antes de saber la versión de los datos.
+	for _, v := range versions {
+		t.Run(v.name, func(t *testing.T) {
+			w, err := sio.DecryptWriter(&bytes.Buffer{}, defaultConfig)
+			n := -1
+			if err == nil {
+				n, err = w.Write(nil)
+			}
+			assert.Equal(t, outcome[int]{0, nil}, outcome[int]{n, err})
+		})
 	}
 }
 
@@ -307,14 +386,48 @@ func TestDecryptWriter_DestinationError(t *testing.T) {
 	}
 	for _, v := range versions {
 		for _, f := range failures {
-			t.Run(v.name+"/"+f.name, func(t *testing.T) {
-				w, err := sio.DecryptWriter(&failingWriter{failAt: f.failAt, err: errDestination}, v.config)
-				if err == nil {
-					err = writeAll(w, golden(v.name, maxPayloadSize+1), 0)
-				}
-				assert.ErrorIs(t, err, errDestination)
-			})
+			for _, c := range writeChunks {
+				t.Run(v.name+"/"+f.name+"/"+c.name, func(t *testing.T) {
+					w, err := sio.DecryptWriter(&failingWriter{failAt: f.failAt, err: errDestination}, v.config)
+					if err == nil {
+						err = writeAll(w, golden(v.name, maxPayloadSize+1), c.chunk)
+					}
+					assert.ErrorIs(t, err, errDestination)
+				})
+			}
 		}
+	}
+}
+
+func TestDecryptWriter_WriteAfterError(t *testing.T) {
+	// Unidad con estado: después de un Write que falla porque dst falla, el
+	// siguiente Write también falla.
+	for _, v := range versions {
+		t.Run(v.name, func(t *testing.T) {
+			w, err := sio.DecryptWriter(&failingWriter{err: errors.New("destination failed")}, v.config)
+			if err != nil {
+				t.Fatal(err)
+			}
+			stream := golden(v.name, maxPayloadSize+1)
+			_, _ = w.Write(stream[:maxPackageSize])
+			_, err = w.Write(stream[maxPackageSize:])
+			assert.Error(t, err)
+		})
+	}
+}
+
+func TestDecryptWriter_CloseAfterError(t *testing.T) {
+	// Doc de DecryptWriter: Close termina el descifrado. Si un Write ya falló,
+	// el descifrado no puede terminar bien, así que Close devuelve error.
+	for _, v := range versions {
+		t.Run(v.name, func(t *testing.T) {
+			w, err := sio.DecryptWriter(&failingWriter{err: errors.New("destination failed")}, v.config)
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, _ = w.Write(golden(v.name, maxPayloadSize+1))
+			assert.Error(t, w.Close())
+		})
 	}
 }
 

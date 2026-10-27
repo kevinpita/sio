@@ -136,6 +136,7 @@ var invalidConfigs = []struct {
 	{"cipher one more than the last known", sio.Config{Key: make([]byte, 32), CipherSuites: []byte{sio.CHACHA20_POLY1305 + 1}}},
 	{"cipher largest byte", sio.Config{Key: make([]byte, 32), CipherSuites: []byte{math.MaxUint8}}},
 	{"known and unknown cipher", sio.Config{Key: make([]byte, 32), CipherSuites: []byte{sio.AES_GCM, sio.CHACHA20_POLY1305 + 1}}},
+	{"two known ciphers and one unknown", sio.Config{Key: make([]byte, 32), CipherSuites: []byte{sio.AES_GCM, sio.CHACHA20_POLY1305, sio.CHACHA20_POLY1305 + 1}}},
 	// PayloadSize: fuera del rango de 1 byte a 64 KiB (doc de Config).
 	{"payload one byte more than 64 KiB", sio.Config{Key: make([]byte, 32), PayloadSize: maxPayloadSize + 1}},
 	{"payload largest int", sio.Config{Key: make([]byte, 32), PayloadSize: math.MaxInt}},
@@ -143,6 +144,9 @@ var invalidConfigs = []struct {
 	{"payload smallest int", sio.Config{Key: make([]byte, 32), PayloadSize: math.MinInt}},
 	// MinVersion y MaxVersion: el mínimo no puede ser mayor que el máximo.
 	{"min version above max version", sio.Config{Key: make([]byte, 32), MinVersion: sio.Version20, MaxVersion: sio.Version10}},
+	// MinVersion y MaxVersion: una versión que no existe (la última es 2.0).
+	{"min version above 2.0", sio.Config{Key: make([]byte, 32), MinVersion: sio.Version20 + 1, MaxVersion: sio.Version20 + 1}},
+	{"max version above 2.0", sio.Config{Key: make([]byte, 32), MaxVersion: sio.Version20 + 1}},
 }
 
 // Alteraciones de un flujo de 2 paquetes (64 KiB y 1 byte). DARE.md, sección 2:
@@ -156,6 +160,25 @@ var tamperings = []struct {
 	{"last byte changed", func(s []byte) []byte { s[len(s)-1] ^= 1; return s }},
 	{"last byte removed", func(s []byte) []byte { return s[:len(s)-1] }},
 	{"first package removed", func(s []byte) []byte { return s[maxPackageSize:] }},
+	{"first package cut", func(s []byte) []byte { return s[:maxPackageSize/2] }},
+	{"second header cut", func(s []byte) []byte { return s[:maxPackageSize+headerSize/2] }},
+	{"second package cut after the header", func(s []byte) []byte { return s[:maxPackageSize+headerSize] }},
+	{"second header cipher changed", func(s []byte) []byte { s[maxPackageSize+1] ^= 1; return s }},
+	// Byte 4 de la cabecera: número de secuencia en 1.0, marca de último
+	// paquete en 2.0. Byte 8: parte del nonce en 1.0 y en 2.0.
+	{"second header byte 4 changed", func(s []byte) []byte { s[maxPackageSize+4] ^= 0x80; return s }},
+	{"second header byte 8 changed", func(s []byte) []byte { s[maxPackageSize+8] ^= 1; return s }},
+}
+
+// Formas de escribir un flujo en un writer: todo en un Write, o en Writes de
+// 1000 bytes, que no coinciden con el tamaño de un paquete y obligan al writer
+// a guardar trozos en su buffer.
+var writeChunks = []struct {
+	name  string
+	chunk int // para writeAll: 0 es todo de una vez
+}{
+	{"one write", 0},
+	{"writes of 1000 bytes", 1000},
 }
 
 // Rangos de versión que no incluyen la versión de los datos. Doc de Config:

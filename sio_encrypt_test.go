@@ -401,6 +401,19 @@ func TestDecryptBuffer_Tampered(t *testing.T) {
 	}
 }
 
+func TestDecryptBuffer_TamperedDefaultConfig(t *testing.T) {
+	// Igual que Tampered, pero con la configuración por defecto, que detecta la
+	// versión de los datos antes de descifrar.
+	for _, v := range versions {
+		for _, tt := range tamperings {
+			t.Run(v.name+"/"+tt.name, func(t *testing.T) {
+				_, err := sio.DecryptBuffer(nil, tt.tamper(golden(v.name, maxPayloadSize+1)), defaultConfig)
+				assert.ErrorAs(t, err, new(sio.Error))
+			})
+		}
+	}
+}
+
 func TestDecryptBuffer_RandomTamperedByte(t *testing.T) {
 	// Datos aleatorios: cambiar cualquier byte del flujo hace fallar el descifrado.
 	rapid.Check(t, func(t *rapid.T) {

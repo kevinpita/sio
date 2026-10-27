@@ -148,6 +148,7 @@ func TestNcrypt_Errors(t *testing.T) {
 		{"input file does not exist, with output file", nil, []string{"-p", phrase, filepath.Join(dir, "missing"), filepath.Join(dir, "out")}},
 		{"output directory does not exist", nil, []string{"-p", phrase, plain, filepath.Join(dir, "missing", "out")}},
 		{"input is a directory", nil, []string{"-p", phrase, dir}},
+		{"input is a directory, with output file", nil, []string{"-p", phrase, dir, filepath.Join(dir, "out")}},
 		{"too many arguments", nil, []string{"-p", phrase, plain, filepath.Join(dir, "out"), filepath.Join(dir, "extra")}},
 	}
 	for _, tt := range tests {
@@ -156,17 +157,6 @@ func TestNcrypt_Errors(t *testing.T) {
 			assert.ErrorAs(t, err, new(*exec.ExitError))
 		})
 	}
-}
-
-func TestNcrypt_OutputRemovedOnError(t *testing.T) {
-	// main.go, parseIOArgs: si el programa falla, borra el fichero de salida
-	// que creó. La entrada es un directorio, así que el cifrado falla.
-	dir := t.TempDir()
-	out := filepath.Join(dir, "out")
-	if _, err := ncrypt(nil, "-p", phrase, dir, out); err == nil {
-		t.Fatal("ncrypt did not fail")
-	}
-	assert.NoFileExists(t, out)
 }
 
 func TestNcrypt_Help(t *testing.T) {

@@ -401,6 +401,33 @@ func TestDecryptBuffer_Tampered(t *testing.T) {
 	}
 }
 
+func TestDecryptBuffer_ShortInput(t *testing.T) {
+	// Flujos cortados, sin bytes de reserva detrás (capacidad igual a la
+	// longitud), como un fichero que termina ahí. Doc de DecryptBuffer: si el
+	// descifrado falla, el error es de tipo sio.Error. Un panic se convierte en
+	// un error que no es sio.Error, para que el assert lo muestre.
+	cuts := []struct {
+		name string
+		size int
+	}{
+		{"one byte", 1},
+		{"one byte less than a header", headerSize - 1},
+		{"first package and half of the second header", maxPackageSize + headerSize/2},
+	}
+	for _, v := range versions {
+		for _, c := range cuts {
+			t.Run(v.name+"/"+c.name, func(t *testing.T) {
+				stream := golden(v.name, maxPayloadSize+1)[:c.size:c.size]
+				err := catchPanic(func() error {
+					_, err := sio.DecryptBuffer(nil, stream, v.config)
+					return err
+				})
+				assert.ErrorAs(t, err, new(sio.Error))
+			})
+		}
+	}
+}
+
 func TestDecryptBuffer_TamperedDefaultConfig(t *testing.T) {
 	// Igual que Tampered, pero con la configuración por defecto, que detecta la
 	// versión de los datos antes de descifrar.

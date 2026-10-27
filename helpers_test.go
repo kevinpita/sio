@@ -3,6 +3,7 @@ package sio_test
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"io"
 
 	"github.com/minio/sio"
@@ -149,4 +150,16 @@ func (w *failingWriter) Write(p []byte) (int, error) {
 	}
 	w.written += len(p)
 	return len(p), nil
+}
+
+// catchPanic ejecuta f y devuelve su error. Si f hace panic, devuelve un error
+// con el mensaje del panic, así la prueba falla con un assert y las demás
+// pruebas siguen.
+func catchPanic(f func() error) (err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			err = fmt.Errorf("panic: %v", r)
+		}
+	}()
+	return f()
 }

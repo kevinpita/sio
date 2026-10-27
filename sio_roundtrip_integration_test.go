@@ -88,6 +88,7 @@ func TestIntegration_RandomRoundTrip(t *testing.T) {
 		e := rapid.SampledFrom(encrypters).Draw(t, "encrypter")
 		d := rapid.SampledFrom(decrypters).Draw(t, "decrypter")
 		plaintext := testData(rapid.IntRange(1, 3*maxPayloadSize).Draw(t, "size"))
+		plaintext[0] = rapid.Byte().Draw(t, "first byte") // testData siempre empieza por 0
 		var got []byte
 		stream, err := e.encrypt(plaintext, v.config)
 		if err == nil {

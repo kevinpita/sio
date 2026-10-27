@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"io"
 	"testing"
 
 	"github.com/minio/sio"
@@ -190,6 +191,24 @@ func TestEncryptWriter_CloseAfterError(t *testing.T) {
 	}
 }
 
+func TestEncryptWriter_ClosableDestinationError(t *testing.T) {
+	// dst también es un io.Closer: un io.PipeWriter cuyo lector está cerrado.
+	// El último paquete se escribe en Close y falla. Doc de EncryptWriter: Close
+	// debe ir bien para terminar el cifrado, así que Close devuelve ese error
+	// aunque cerrar dst vaya bien.
+	for _, v := range versions {
+		t.Run(v.name, func(t *testing.T) {
+			pr, pw := io.Pipe()
+			_ = pr.Close()
+			w, err := sio.EncryptWriter(pw, v.config)
+			if err == nil {
+				err = writeAll(w, testData(1), 0)
+			}
+			assert.ErrorIs(t, err, io.ErrClosedPipe)
+		})
+	}
+}
+
 func TestEncryptWriter_EmptyWrite(t *testing.T) {
 	// Doc de io.Writer: Write de 0 bytes escribe 0 bytes.
 	for _, v := range versions {
@@ -275,6 +294,30 @@ func TestDecryptWriter_DefaultConfig(t *testing.T) {
 	}
 }
 
+func TestDecryptWriter_SmallPackagesSplitWrites(t *testing.T) {
+	// DARE 1.0 con PayloadSize 1: dos paquetes de 33 bytes. El primer Write
+	// corta la primera cabecera (15 bytes) y el segundo lleva el resto, que
+	// pasa por el final del primer paquete.
+	config := onlyVersion10
+	config.PayloadSize = 1
+	stream := &bytes.Buffer{}
+	if _, err := sio.Encrypt(stream, bytes.NewReader(testData(2)), config); err != nil {
+		t.Fatal(err)
+	}
+	out := &bytes.Buffer{}
+	w, err := sio.DecryptWriter(out, config)
+	if err == nil {
+		_, err = w.Write(stream.Bytes()[:15])
+	}
+	if err == nil {
+		_, err = w.Write(stream.Bytes()[15:])
+	}
+	if err == nil {
+		err = w.Close()
+	}
+	assert.Equal(t, outcome[[]byte]{testData(2), nil}, outcome[[]byte]{out.Bytes(), err})
+}
+
 func TestDecryptWriter_AnyWriteSize(t *testing.T) {
 	// La salida no depende del tamaño de cada Write.
 	// Fronteras: 1 byte, la cabecera y un paquete completo ±1.
@@ -332,6 +375,24 @@ func TestDecryptWriter_UnknownVersion(t *testing.T) {
 			stream[0] = 0x30
 			_, err := decryptW(stream, defaultConfig, 0)
 			assert.ErrorAs(t, err, new(sio.Error))
+		})
+	}
+}
+
+func TestDecryptWriter_ClosableDestinationError(t *testing.T) {
+	// Igual que en EncryptWriter: dst es un io.PipeWriter cuyo lector está
+	// cerrado. Doc de DecryptWriter: Close debe ir bien para terminar el
+	// descifrado, así que el error de la escritura llega al que escribe, en
+	// Write o en Close, aunque cerrar dst vaya bien.
+	for _, v := range versions {
+		t.Run(v.name, func(t *testing.T) {
+			pr, pw := io.Pipe()
+			_ = pr.Close()
+			w, err := sio.DecryptWriter(pw, v.config)
+			if err == nil {
+				err = writeAll(w, golden(v.name, 1), 0)
+			}
+			assert.ErrorIs(t, err, io.ErrClosedPipe)
 		})
 	}
 }

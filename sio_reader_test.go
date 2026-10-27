@@ -119,6 +119,19 @@ func TestEncryptReader_AnyReadSize(t *testing.T) {
 	}
 }
 
+func TestEncryptReader_WholeStreamBuffer(t *testing.T) {
+	// Buffer de lectura de dos paquetes: todo el flujo cifrado cabe en él, con
+	// cada tamaño del texto plano.
+	for _, v := range versions {
+		for _, s := range plaintextSizes {
+			t.Run(v.name+"/"+s.name, func(t *testing.T) {
+				got, err := encrypt(bytes.NewReader(testData(s.size)), v.config, 2*maxPackageSize)
+				assert.Equal(t, outcome[[]byte]{golden(v.name, s.size), nil}, outcome[[]byte]{got, err})
+			})
+		}
+	}
+}
+
 func TestEncryptReader_SlowSource(t *testing.T) {
 	// Mocks de src que entregan los datos a trozos: la salida no cambia.
 	sources := []struct {
@@ -464,6 +477,29 @@ func TestDecryptReaderAt_RandomRange(t *testing.T) {
 	})
 }
 
+func TestDecryptReaderAt_SingleCall(t *testing.T) {
+	// Doc de io.ReaderAt: ReadAt lee len(p) bytes, y si lee menos devuelve un
+	// error. Un solo ReadAt de un paquete completo, sin llegar al final del
+	// flujo, con cada versión y con la configuración por defecto.
+	plaintext := testData(maxPayloadSize + 1)
+	for _, v := range versions {
+		for _, c := range []struct {
+			name   string
+			config sio.Config
+		}{{"version config", v.config}, {"default config", defaultConfig}} {
+			t.Run(v.name+"/"+c.name, func(t *testing.T) {
+				r, err := sio.DecryptReaderAt(bytes.NewReader(golden(v.name, maxPayloadSize+1)), c.config)
+				p := make([]byte, maxPayloadSize)
+				n := 0
+				if err == nil {
+					n, err = r.ReadAt(p, 0)
+				}
+				assert.Equal(t, outcome[[]byte]{plaintext[:maxPayloadSize], nil}, outcome[[]byte]{p[:n], err})
+			})
+		}
+	}
+}
+
 func TestDecryptReaderAt_PastEnd(t *testing.T) {
 	// Doc de io.EOF: es el error que indica que no hay más datos. io.ReadAll lo
 	// trata como fin sin error, así que se esperan los bytes que quedan y nil.
@@ -523,6 +559,27 @@ func TestDecryptReaderAt_LastPackages(t *testing.T) {
 				assert.Equal(t, outcome[[]byte]{plaintext[1:], nil}, outcome[[]byte]{got, err})
 			})
 		}
+	}
+}
+
+func TestDecryptReaderAt_BeyondMaximumSize(t *testing.T) {
+	// DARE.md: un flujo tiene como mucho 2^32 paquetes. Un offset en el paquete
+	// 2^32 está fuera de cualquier flujo válido, así que ReadAt debe dar error
+	// aunque src tenga allí un paquete correcto (con número de secuencia 0,
+	// que es 2^32 en un uint32).
+	for _, v := range versions {
+		t.Run(v.name, func(t *testing.T) {
+			stream := &bytes.Buffer{}
+			if _, err := sio.Encrypt(stream, bytes.NewReader(testData(2)), v.config); err != nil {
+				t.Fatal(err)
+			}
+			src := sparseReaderAt{stream.Bytes(), maxPackages * maxPackageSize}
+			r, err := sio.DecryptReaderAt(src, v.config)
+			if err == nil {
+				_, err = r.ReadAt(make([]byte, 1), maxPackages*maxPayloadSize+1)
+			}
+			assert.Error(t, err)
+		})
 	}
 }
 

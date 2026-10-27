@@ -63,7 +63,7 @@ in
       target="''${1:?usage: vvs-fuzz FuzzName [duration]}"
       go test -run '^$' -fuzz "^$target\$" -fuzztime "''${2:-60s}" .
     '';
-    vvs-mutate.exec = ''gremlins unleash "$@" | tee reports/mutation.txt'';
+    vvs-mutate.exec = ''bash reports/mutation.sh | tee reports/mutation.txt'';
   };
 
   enterTest = ''

@@ -1,0 +1,97 @@
+# Subtests que fallan por bugs abiertos. reports/mutation.sh los salta.
+# Cada grupo empieza con su issue. Si se arregla un bug, hay que borrar su grupo.
+
+# #1 Todas las funciones que reciben una Config aceptan PayloadSize negativo
+TestDecryptBuffer_InvalidConfig/payload_minus_one
+TestDecryptBuffer_InvalidConfig/payload_smallest_int
+TestDecryptReaderAt_InvalidConfig/payload_minus_one
+TestDecryptReaderAt_InvalidConfig/payload_smallest_int
+TestDecryptReader_InvalidConfig/payload_minus_one
+TestDecryptReader_InvalidConfig/payload_smallest_int
+TestDecryptWriter_InvalidConfig/payload_minus_one
+TestDecryptWriter_InvalidConfig/payload_smallest_int
+TestDecrypt_InvalidConfig/payload_minus_one
+TestDecrypt_InvalidConfig/payload_smallest_int
+TestEncryptReader_InvalidConfig/payload_minus_one
+TestEncryptReader_InvalidConfig/payload_smallest_int
+TestEncryptWriter_InvalidConfig/payload_minus_one
+TestEncryptWriter_InvalidConfig/payload_smallest_int
+TestEncrypt_InvalidConfig/payload_minus_one
+TestEncrypt_InvalidConfig/payload_smallest_int
+
+# #2 El descifrado no acepta un flujo DARE 2.0 vacío creado por EncryptReader
+TestDecryptBuffer_Golden/2.0/empty_stream
+TestDecryptReaderAt_Golden/2.0/empty_stream
+TestDecryptReader_Golden/2.0/empty_stream
+TestDecryptReader_ReadAfterEOF/2.0/empty_stream
+TestDecrypt_ByteCount/2.0/empty_stream
+TestDecrypt_Golden/2.0/empty_stream
+TestIntegration_EncryptThenDecrypt/2.0/Encrypt/Decrypt/empty_stream
+TestIntegration_EncryptThenDecrypt/2.0/Encrypt/DecryptBuffer/empty_stream
+TestIntegration_EncryptThenDecrypt/2.0/Encrypt/DecryptReader/empty_stream
+TestIntegration_EncryptThenDecrypt/2.0/Encrypt/DecryptReaderAt/empty_stream
+TestIntegration_EncryptThenDecrypt/2.0/EncryptReader/Decrypt/empty_stream
+TestIntegration_EncryptThenDecrypt/2.0/EncryptReader/DecryptBuffer/empty_stream
+TestIntegration_EncryptThenDecrypt/2.0/EncryptReader/DecryptReader/empty_stream
+TestIntegration_EncryptThenDecrypt/2.0/EncryptReader/DecryptReaderAt/empty_stream
+TestIntegration_EncryptThenDecrypt/2.0/EncryptWriter/Decrypt/empty_stream
+TestIntegration_EncryptThenDecrypt/2.0/EncryptWriter/DecryptBuffer/empty_stream
+TestIntegration_EncryptThenDecrypt/2.0/EncryptWriter/DecryptReader/empty_stream
+TestIntegration_EncryptThenDecrypt/2.0/EncryptWriter/DecryptReaderAt/empty_stream
+TestIntegration_Pipe/2.0/empty_stream
+
+# #3 Las funciones de descifrado aceptan datos con una versión fuera de MinVersion y MaxVersion
+TestDecryptBuffer_VersionOutsideRange/1.0_data,_min_just_above_1.0
+TestDecryptBuffer_VersionOutsideRange/1.0_data,_min_just_below_2.0
+TestDecryptBuffer_VersionOutsideRange/2.0_data,_max_just_below_2.0
+TestDecryptReaderAt_VersionOutsideRange/1.0_data,_min_just_above_1.0
+TestDecryptReaderAt_VersionOutsideRange/1.0_data,_min_just_below_2.0
+TestDecryptReaderAt_VersionOutsideRange/2.0_data,_max_just_below_2.0
+TestDecryptReader_VersionOutsideRange/1.0_data,_min_just_above_1.0
+TestDecryptReader_VersionOutsideRange/1.0_data,_min_just_below_2.0
+TestDecryptReader_VersionOutsideRange/2.0_data,_max_just_below_2.0
+TestDecryptWriter_VersionOutsideRange/1.0_data,_min_just_above_1.0
+TestDecryptWriter_VersionOutsideRange/1.0_data,_min_just_below_2.0
+TestDecryptWriter_VersionOutsideRange/2.0_data,_max_just_below_2.0
+TestDecrypt_VersionOutsideRange/1.0_data,_min_just_above_1.0
+TestDecrypt_VersionOutsideRange/1.0_data,_min_just_below_2.0
+TestDecrypt_VersionOutsideRange/2.0_data,_max_just_below_2.0
+
+# #4 DecryptReaderAt (DARE 2.0) devuelve "sio: unexpected EOF" con offsets más allá del último paquete
+TestDecryptReaderAt_PastEnd/2.0/full_package,_one_byte_past_the_end
+TestDecryptReaderAt_PastEnd/2.0/one_byte_past_the_last_package
+
+# #5 EncryptReader, EncryptWriter y Encrypt cifran con una versión fuera de MinVersion y MaxVersion
+TestEncryptReader_NoVersionInRange/just_above_1.0_to_just_below_2.0
+TestEncryptReader_NoVersionInRange/only_just_above_1.0
+TestEncryptReader_NoVersionInRange/only_just_below_2.0
+TestEncryptWriter_NoVersionInRange/just_above_1.0_to_just_below_2.0
+TestEncryptWriter_NoVersionInRange/only_just_above_1.0
+TestEncryptWriter_NoVersionInRange/only_just_below_2.0
+TestEncrypt_NoVersionInRange/just_above_1.0_to_just_below_2.0
+TestEncrypt_NoVersionInRange/only_just_above_1.0
+TestEncrypt_NoVersionInRange/only_just_below_2.0
+
+# #6 DecryptBuffer no descifra un flujo vacío con la configuración por defecto
+TestDecryptBuffer_DefaultConfig/1.0/empty_stream
+TestDecryptBuffer_DefaultConfig/2.0/empty_stream
+
+# #7 EncryptWriter (DARE 1.0) acepta Write después de Close
+TestEncryptWriter_WriteAfterClose/1.0
+
+# #8 EncryptedSize y DecryptedSize no tienen en cuenta PayloadSize (DARE 1.0)
+TestIntegration_DecryptedSizeWithPayloadSize/payload_1
+TestIntegration_DecryptedSizeWithPayloadSize/payload_1000
+TestIntegration_DecryptedSizeWithPayloadSize/payload_65535
+TestIntegration_EncryptedSizeWithPayloadSize/payload_1
+TestIntegration_EncryptedSizeWithPayloadSize/payload_1000
+TestIntegration_EncryptedSizeWithPayloadSize/payload_65535
+
+# #9 DecryptReaderAt no lee el último paquete de un flujo de tamaño máximo
+TestDecryptReaderAt_LastPackages/1.0/last_package
+TestDecryptReaderAt_LastPackages/2.0/last_package
+
+# #12 DecryptBuffer hace panic con un flujo DARE 2.0 cortado
+TestDecryptBuffer_ShortInput/2.0/first_package_and_half_of_the_second_header
+TestDecryptBuffer_ShortInput/2.0/one_byte
+TestDecryptBuffer_ShortInput/2.0/one_byte_less_than_a_header

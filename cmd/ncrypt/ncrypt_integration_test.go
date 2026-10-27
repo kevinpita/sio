@@ -163,7 +163,9 @@ func TestNcrypt_OutputRemovedOnError(t *testing.T) {
 	// que creó. La entrada es un directorio, así que el cifrado falla.
 	dir := t.TempDir()
 	out := filepath.Join(dir, "out")
-	_, _ = ncrypt(nil, "-p", phrase, dir, out)
+	if _, err := ncrypt(nil, "-p", phrase, dir, out); err == nil {
+		t.Fatal("ncrypt did not fail")
+	}
 	assert.NoFileExists(t, out)
 }
 

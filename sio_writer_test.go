@@ -164,7 +164,9 @@ func TestEncryptWriter_WriteAfterError(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			_, _ = w.Write(testData(maxPayloadSize + 1))
+			if _, err := w.Write(testData(maxPayloadSize + 1)); err == nil {
+				t.Fatal("first Write did not fail")
+			}
 			_, err = w.Write(testData(1))
 			assert.Error(t, err)
 		})
@@ -180,7 +182,9 @@ func TestEncryptWriter_CloseAfterError(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			_, _ = w.Write(testData(maxPayloadSize + 1))
+			if _, err := w.Write(testData(maxPayloadSize + 1)); err == nil {
+				t.Fatal("first Write did not fail")
+			}
 			assert.Error(t, w.Close())
 		})
 	}
@@ -409,7 +413,9 @@ func TestDecryptWriter_WriteAfterError(t *testing.T) {
 				t.Fatal(err)
 			}
 			stream := golden(v.name, maxPayloadSize+1)
-			_, _ = w.Write(stream[:maxPackageSize])
+			if _, err := w.Write(stream[:maxPackageSize]); err == nil {
+				t.Fatal("first Write did not fail")
+			}
 			_, err = w.Write(stream[maxPackageSize:])
 			assert.Error(t, err)
 		})
@@ -425,7 +431,9 @@ func TestDecryptWriter_CloseAfterError(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			_, _ = w.Write(golden(v.name, maxPayloadSize+1))
+			if _, err := w.Write(golden(v.name, maxPayloadSize+1)); err == nil {
+				t.Fatal("first Write did not fail")
+			}
 			assert.Error(t, w.Close())
 		})
 	}

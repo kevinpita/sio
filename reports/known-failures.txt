@@ -95,3 +95,8 @@ TestDecryptReaderAt_LastPackages/2.0/last_package
 TestDecryptBuffer_ShortInput/2.0/first_package_and_half_of_the_second_header
 TestDecryptBuffer_ShortInput/2.0/one_byte
 TestDecryptBuffer_ShortInput/2.0/one_byte_less_than_a_header
+
+# #13 DARE 2.0 reserva memoria en cada paquete al cifrar y descifrar
+TestIntegration_PipeAllocations/2.0
+TestPerformance_Allocations/2.0/Decrypt
+TestPerformance_Allocations/2.0/Encrypt

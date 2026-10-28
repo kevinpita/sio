@@ -97,6 +97,19 @@ func (s sparseReaderAt) ReadAt(p []byte, off int64) (int, error) {
 	return n, nil
 }
 
+// countingReaderAt es un mock de io.ReaderAt que cuenta los bytes que se leen
+// de r.
+type countingReaderAt struct {
+	r    io.ReaderAt
+	read int
+}
+
+func (c *countingReaderAt) ReadAt(p []byte, off int64) (int, error) {
+	n, err := c.r.ReadAt(p, off)
+	c.read += n
+	return n, err
+}
+
 // encryptW cifra src con EncryptWriter, escribiéndolo en trozos de chunk bytes
 // (0: todo de una vez), y cierra el writer.
 func encryptW(src []byte, config sio.Config, chunk int) ([]byte, error) {
